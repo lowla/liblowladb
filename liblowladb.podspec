@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
   s.version          = "0.0.1"
   s.summary          = "A synchronizing embedded client database based on MongoDB."
   s.homepage         = "https://github.com/lowla/liblowladb"
-  s.license          = 'Apache 2.0'
+  s.license          = 'MIT'
   s.author           = { "Mark Dixon" => "mark_dixon@teamstudio.com" }
   s.source           = { :git => "https://github.com/lowla/liblowladb.git", :tag => s.version.to_s }
 
