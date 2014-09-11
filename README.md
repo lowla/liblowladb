@@ -26,5 +26,5 @@ it, simply add the following line to your Podfile:
 
 ## License
 
-liblowladb is available under the Apache 2 license. See the LICENSE file for more info.
+liblowladb is available under the MIT license. See the LICENSE file for more info.
 
