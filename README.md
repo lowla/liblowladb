@@ -5,10 +5,6 @@
 [![License](https://img.shields.io/cocoapods/l/liblowladb.svg?style=flat)](http://cocoadocs.org/docsets/liblowladb)
 [![Platform](https://img.shields.io/cocoapods/p/liblowladb.svg?style=flat)](http://cocoadocs.org/docsets/liblowladb)
 
-## Usage
-
-To run the example project, clone the repo, and run `pod install` from the Example directory first.
-
 ## Requirements
 
 ## Installation
@@ -20,9 +16,9 @@ it, simply add the following line to your Podfile:
 
 ## Authors
 
-- Mark Dixon, mark_dixon@teamstudio.com
-- Michael Hamilton, michael_hamilton@teamstudio.com
-- Matt Vargish, matt_vargish@teamstudio.com
+- Mark Dixon, mark_dixon@lowla.io
+- Michael Hamilton, michael_hamilton@lowla.io
+- Matt Vargish, matt_vargish@lowla.io
 
 ## License
 
