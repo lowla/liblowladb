@@ -9,7 +9,7 @@
 
 Pod::Spec.new do |s|
   s.name             = "liblowladb"
-  s.version          = "0.1.0"
+  s.version          = "0.0.1"
   s.summary          = "A synchronizing embedded client database based on MongoDB."
   s.homepage         = "https://github.com/lowla/liblowladb"
   s.license          = 'Apache 2.0'
