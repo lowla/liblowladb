@@ -9,12 +9,10 @@
 /* Begin PBXBuildFile section */
 		31142541A4EF46B591507C03 /* libPods-ios.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAF1F3E9E8AD4D86AF263F37 /* libPods-ios.a */; };
 		4D137F6D19AFDFA200D70722 /* Tests.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBCA419AF5A1F00566892 /* Tests.mm */; };
-		4DFDBC6A19AE6CBA00566892 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DFDBC6919AE6CBA00566892 /* XCTest.framework */; };
 		4DFDBC6B19AE6CBA00566892 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DFDBC5019AE6CBA00566892 /* Foundation.framework */; };
 		4DFDBC6C19AE6CBA00566892 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DFDBC5419AE6CBA00566892 /* UIKit.framework */; };
 		4DFDBC8819AEBA3F00566892 /* gtest-all.cc in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBC8519AEBA3F00566892 /* gtest-all.cc */; };
 		4DFDBC8919AEBA3F00566892 /* lowladb_tests.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBC8719AEBA3F00566892 /* lowladb_tests.cpp */; };
-		4DFDBC8F19AEBC3600566892 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DFDBC6919AE6CBA00566892 /* XCTest.framework */; };
 		4DFDBC9F19AEC3DF00566892 /* gtest-all.cc in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBC8519AEBA3F00566892 /* gtest-all.cc */; };
 		4DFDBCA019AEC3DF00566892 /* lowladb_tests.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBC8719AEBA3F00566892 /* lowladb_tests.cpp */; };
 		4DFDBCA519AF5A1F00566892 /* Tests.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBCA419AF5A1F00566892 /* Tests.mm */; };
@@ -29,7 +27,6 @@
 		4DFDBC5219AE6CBA00566892 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		4DFDBC5419AE6CBA00566892 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		4DFDBC6819AE6CBA00566892 /* iOS Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "iOS Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		4DFDBC6919AE6CBA00566892 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
 		4DFDBC8519AEBA3F00566892 /* gtest-all.cc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = "gtest-all.cc"; path = "../../test/gtest-all.cc"; sourceTree = "<group>"; };
 		4DFDBC8619AEBA3F00566892 /* gtest.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = gtest.h; path = ../../test/gtest.h; sourceTree = "<group>"; };
 		4DFDBC8719AEBA3F00566892 /* lowladb_tests.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; name = lowladb_tests.cpp; path = ../../test/lowladb_tests.cpp; sourceTree = "<group>"; };
@@ -47,7 +44,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4DFDBC6A19AE6CBA00566892 /* XCTest.framework in Frameworks */,
 				4DFDBC6C19AE6CBA00566892 /* UIKit.framework in Frameworks */,
 				4DFDBC6B19AE6CBA00566892 /* Foundation.framework in Frameworks */,
 				31142541A4EF46B591507C03 /* libPods-ios.a in Frameworks */,
@@ -58,7 +54,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				4DFDBC8F19AEBC3600566892 /* XCTest.framework in Frameworks */,
 				BAC12CB90EEC4ED591253D58 /* libPods-osx.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -92,7 +87,6 @@
 				4DFDBC5019AE6CBA00566892 /* Foundation.framework */,
 				4DFDBC5219AE6CBA00566892 /* CoreGraphics.framework */,
 				4DFDBC5419AE6CBA00566892 /* UIKit.framework */,
-				4DFDBC6919AE6CBA00566892 /* XCTest.framework */,
 				FAF1F3E9E8AD4D86AF263F37 /* libPods-ios.a */,
 				D5E63A2C3EA942468A012EEB /* libPods-osx.a */,
 			);
@@ -383,6 +377,12 @@
 					"$(inherited)",
 				);
 				INFOPLIST_FILE = "liblowladb-tests/liblowladb-tests-Info.plist";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					XCTest,
+					"-ObjC",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				WRAPPER_EXTENSION = xctest;
 			};
@@ -400,6 +400,12 @@
 				GCC_PRECOMPILE_PREFIX_HEADER = YES;
 				GCC_PREFIX_HEADER = "iOS Tests/iOS Tests-Prefix.pch";
 				INFOPLIST_FILE = "liblowladb-tests/liblowladb-tests-Info.plist";
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-framework",
+					XCTest,
+					"-ObjC",
+				);
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				WRAPPER_EXTENSION = xctest;
 			};

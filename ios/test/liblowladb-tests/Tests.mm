@@ -20,6 +20,8 @@
 
 @implementation _GTestCase
 
+@synthesize name = _name;
+
 + (void)load
 {
     [[NSUserDefaults standardUserDefaults] setValue:@"XCTestLog,XCTestRunCaptureTestObserver"
@@ -90,7 +92,7 @@ void XCUnitPrinter::OnTestStart(const ::testing::TestInfo &test_info)
 void XCUnitPrinter::OnTestPartResult(const ::testing::TestPartResult &test_part_result)
 {
     if (test_part_result.failed()) {
-        [m_tcr recordFailureInTest:m_tc withDescription:@(test_part_result.message()) inFile:@(test_part_result.file_name()) atLine:test_part_result.line_number() expected:YES];
+        [m_tcr recordFailureWithDescription:@(test_part_result.message()) inFile:@(test_part_result.file_name()) atLine:test_part_result.line_number() expected:YES];
     }
 }
 
@@ -118,7 +120,7 @@ void XCUnitPrinter::OnTestProgramEnd(const ::testing::UnitTest &unit_test)
 
 - (void)testSuiteDidStop:(XCTestRun *)testRun
 {
-    if (![testRun.test.name hasPrefix:@"_"]) {
+    if (![testRun.test.name hasPrefix:@"All"]) {
         return;
     }
     int argc = 0;
