@@ -6,10 +6,12 @@
 [![Platform](https://img.shields.io/cocoapods/p/liblowladb.svg?style=flat)](http://cocoadocs.org/docsets/liblowladb)
 
 ## Requirements
+liblowladb is currently supported on iOS 6.0 and above. Versions for Android and Windows are planned.
+**The unit tests for liblowladb on iOS require XCode 6. The Travis build will fail until Travis migrates to XCode 6, which is expected to happen shortly after the general release.**
 
 ## Installation
 
-liblowladb is available through [CocoaPods](http://cocoapods.org). To install
+On iOS, liblowladb is available through [CocoaPods](http://cocoapods.org). To install
 it, simply add the following line to your Podfile:
 
     pod "liblowladb"
