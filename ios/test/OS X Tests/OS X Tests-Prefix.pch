@@ -8,6 +8,6 @@
     #import <Cocoa/Cocoa.h>
 	
 	#ifdef COCOAPODS
-		#import "../Pods/Pods-osx-environment.h"
+	    #import "../Pods/Target Support Files/Pods-osx/Pods-osx-environment.h"
 	#endif
 #endif
