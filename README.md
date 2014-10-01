@@ -7,7 +7,7 @@
 
 ## Requirements
 liblowladb is currently supported on iOS 6.0 and above. Versions for Android and Windows are planned.
-**The unit tests for liblowladb on iOS require XCode 6. The Travis build will fail until Travis migrates to XCode 6, which is expected to happen shortly after the general release.**
+Note that the unit tests for liblowladb on iOS require XCode 6.
 
 ## Installation
 

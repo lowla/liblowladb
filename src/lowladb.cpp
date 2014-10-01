@@ -1315,7 +1315,7 @@ utf16string CLowlaDBPullDataImpl::getRequestMore() {
 }
 
 utf16string lowladb_get_version() {
-    return "0.0.1";
+    return "0.0.2";
 }
 
 void lowladb_db_delete(const utf16string &name) {
