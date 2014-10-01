@@ -6,4 +6,8 @@
 
 #ifdef __OBJC__
     #import <Cocoa/Cocoa.h>
+	
+	#ifdef COCOAPODS
+		#import "../Pods/Pods-osx-environment.h"
+	#endif
 #endif

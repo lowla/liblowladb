@@ -9,6 +9,8 @@
 /* Begin PBXBuildFile section */
 		31142541A4EF46B591507C03 /* libPods-ios.a in Frameworks */ = {isa = PBXBuildFile; fileRef = FAF1F3E9E8AD4D86AF263F37 /* libPods-ios.a */; };
 		4D137F6D19AFDFA200D70722 /* Tests.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBCA419AF5A1F00566892 /* Tests.mm */; };
+		4DBA200E19C796450022A0E4 /* AppleSpecificTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4DBA200D19C796450022A0E4 /* AppleSpecificTests.mm */; };
+		4DBA200F19C796450022A0E4 /* AppleSpecificTests.mm in Sources */ = {isa = PBXBuildFile; fileRef = 4DBA200D19C796450022A0E4 /* AppleSpecificTests.mm */; };
 		4DFDBC6B19AE6CBA00566892 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DFDBC5019AE6CBA00566892 /* Foundation.framework */; };
 		4DFDBC6C19AE6CBA00566892 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4DFDBC5419AE6CBA00566892 /* UIKit.framework */; };
 		4DFDBC8819AEBA3F00566892 /* gtest-all.cc in Sources */ = {isa = PBXBuildFile; fileRef = 4DFDBC8519AEBA3F00566892 /* gtest-all.cc */; };
@@ -23,6 +25,7 @@
 
 /* Begin PBXFileReference section */
 		183637D8F6BB44F89DAA3E3A /* Pods-ios.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ios.xcconfig"; path = "Pods/Pods-ios.xcconfig"; sourceTree = "<group>"; };
+		4DBA200D19C796450022A0E4 /* AppleSpecificTests.mm */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.objcpp; name = AppleSpecificTests.mm; path = "liblowladb-tests/AppleSpecificTests.mm"; sourceTree = "<group>"; };
 		4DFDBC5019AE6CBA00566892 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
 		4DFDBC5219AE6CBA00566892 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		4DFDBC5419AE6CBA00566892 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
@@ -96,6 +99,7 @@
 		4DFDBC6F19AE6CBA00566892 /* Tests */ = {
 			isa = PBXGroup;
 			children = (
+				4DBA200D19C796450022A0E4 /* AppleSpecificTests.mm */,
 				4DFDBCA419AF5A1F00566892 /* Tests.mm */,
 				4DFDBC8519AEBA3F00566892 /* gtest-all.cc */,
 				4DFDBC8619AEBA3F00566892 /* gtest.h */,
@@ -272,6 +276,7 @@
 			files = (
 				4DFDBC8919AEBA3F00566892 /* lowladb_tests.cpp in Sources */,
 				4DFDBC8819AEBA3F00566892 /* gtest-all.cc in Sources */,
+				4DBA200E19C796450022A0E4 /* AppleSpecificTests.mm in Sources */,
 				4DFDBCA519AF5A1F00566892 /* Tests.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -282,6 +287,7 @@
 			files = (
 				4DFDBC9F19AEC3DF00566892 /* gtest-all.cc in Sources */,
 				4DFDBCA019AEC3DF00566892 /* lowladb_tests.cpp in Sources */,
+				4DBA200F19C796450022A0E4 /* AppleSpecificTests.mm in Sources */,
 				4D137F6D19AFDFA200D70722 /* Tests.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

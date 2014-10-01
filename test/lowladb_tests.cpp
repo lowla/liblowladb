@@ -10,10 +10,6 @@
 
 #include "lowladb.h"
 
-TEST(lowladb_tests, test_lowladb_get_version) {
-    EXPECT_EQ("0.1.0", lowladb_get_version());
-}
-
 class DbTestFixture : public ::testing::Test {
 public:
     DbTestFixture();
