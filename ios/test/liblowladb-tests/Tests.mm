@@ -6,143 +6,132 @@
 //  Copyright (c) 2014 Lowla. All rights reserved.
 //
 
-#import <objc/runtime.h>
 #import <XCTest/XCTest.h>
 #import "gtest.h"
 
-@interface _GTestCase : XCTestCase
-@property NSString *name;
+@interface GoogleTestSuite : XCTestSuite
+@end
 
-- (id)initWithName:(NSString *)name fromSuite:(NSString *)suiteName;
-+ (id)testCaseWithName:(NSString *)name fromSuite:(NSString *)suiteName;
+@interface GoogleTests : XCTestCase
+{
+@private NSString *_name;
+}
+- (id)initWithName:(NSString *)name;
+- (NSString *)name;
 
 @end
 
-@implementation _GTestCase
-
-@synthesize name = _name;
-
-+ (void)load
-{
-    [[NSUserDefaults standardUserDefaults] setValue:@"XCTestLog,XCTestRunCaptureTestObserver"
-                                             forKey:@"XCTestObserverClass"];
-}
-
-- (id)initWithName:(NSString *)name fromSuite:(NSString *)suiteName
-{
-    if (self = [super init]) {
-        _name = [NSString stringWithFormat:@"-[%@ %@]", suiteName, name];
-    }
-    return self;
-}
-
-+ (id)testCaseWithName:(NSString *)name fromSuite:(NSString *)suiteName
-{
-    return [[self alloc] initWithName:name fromSuite:suiteName];
-}
-
-@end
-
-class XCUnitPrinter : public ::testing::EmptyTestEventListener
+class GTestRunCollector : public ::testing::EmptyTestEventListener
 {
 public:
-    XCUnitPrinter(XCTestSuiteRun *gtsr);
+    GTestRunCollector(XCTestSuiteRun *gtsr);
     
     virtual void OnTestProgramStart(const ::testing::UnitTest& unit_test);
-    virtual void OnTestCaseStart(const ::testing::TestCase& test_case);
     virtual void OnTestStart(const ::testing::TestInfo& test_info);
     virtual void OnTestPartResult(const ::testing::TestPartResult& test_part_result);
     virtual void OnTestEnd(const ::testing::TestInfo& test_info);
-    virtual void OnTestCaseEnd(const ::testing::TestCase& test_case);
     virtual void OnTestProgramEnd(const ::testing::UnitTest& unit_test);
     
 private:
     XCTestSuiteRun *m_gtsr;
-    XCTestSuite *m_ts;
-    XCTestSuiteRun *m_tsr;
-    XCTestCase *m_tc;
+    XCTest *m_tc;
     XCTestCaseRun *m_tcr;
 };
 
-XCUnitPrinter::XCUnitPrinter(XCTestSuiteRun *gtsr) : m_gtsr(gtsr)
+GTestRunCollector::GTestRunCollector(XCTestSuiteRun *gtsr) : m_gtsr(gtsr)
 {
 }
 
-void XCUnitPrinter::OnTestProgramStart(const testing::UnitTest &unit_test)
+void GTestRunCollector::OnTestProgramStart(const testing::UnitTest &unit_test)
 {
     [m_gtsr start];
 }
 
-void XCUnitPrinter::OnTestCaseStart(const ::testing::TestCase &test_case)
+void GTestRunCollector::OnTestStart(const ::testing::TestInfo &test_info)
 {
-    m_ts = [XCTestSuite testSuiteWithName:@(test_case.name())];
-    m_tsr = [XCTestSuiteRun testRunWithTest:m_ts];
-    [m_tsr start];
-}
-
-void XCUnitPrinter::OnTestStart(const ::testing::TestInfo &test_info)
-{
-    m_tc = [_GTestCase testCaseWithName:@(test_info.name()) fromSuite:[m_ts name]];
+    NSString *testName = [NSString stringWithFormat:@"%s.%s", test_info.test_case_name(), test_info.name()];
+    m_tc = [[GoogleTests alloc] initWithName:testName];
     m_tcr = [XCTestCaseRun testRunWithTest:m_tc];
-    [m_ts addTest:m_tc];
-    [m_tsr addTestRun:m_tcr];
     [m_tcr start];
 }
 
-void XCUnitPrinter::OnTestPartResult(const ::testing::TestPartResult &test_part_result)
+void GTestRunCollector::OnTestPartResult(const ::testing::TestPartResult &test_part_result)
 {
     if (test_part_result.failed()) {
         [m_tcr recordFailureWithDescription:@(test_part_result.message()) inFile:@(test_part_result.file_name()) atLine:test_part_result.line_number() expected:YES];
     }
 }
 
-void XCUnitPrinter::OnTestEnd(const ::testing::TestInfo &test_info)
+void GTestRunCollector::OnTestEnd(const ::testing::TestInfo &test_info)
 {
     [m_tcr stop];
+    [m_gtsr addTestRun:m_tcr];
 }
 
-void XCUnitPrinter::OnTestCaseEnd(const ::testing::TestCase& test_case)
-{
-    [m_tsr stop];
-    [(XCTestSuite *)[m_gtsr test] addTest:m_ts];
-    [m_gtsr addTestRun:m_tsr];
-}
-
-void XCUnitPrinter::OnTestProgramEnd(const ::testing::UnitTest &unit_test)
+void GTestRunCollector::OnTestProgramEnd(const ::testing::UnitTest &unit_test)
 {
     [m_gtsr stop];
 }
 
-@interface XCTestRunCaptureTestObserver : XCTestObserver
-@end
+@implementation GoogleTestSuite
 
-@implementation XCTestRunCaptureTestObserver
++ (id)testSuite {
+    return [[GoogleTestSuite alloc] init];
+}
 
-- (void)testSuiteDidStop:(XCTestRun *)testRun
-{
-    if (![testRun.test.name hasPrefix:@"All"]) {
-        return;
-    }
+// This is the name written to the test run output log. Xcode doesn't display it.
+// XCode displays the value of [GoogleTests testClassName]
+- (NSString *)name {
+    return @"GoogleTests";
+}
+
+- (void)performTest:(XCTestRun *)run {
     int argc = 0;
     char **argv = nullptr;
     
     ::testing::InitGoogleTest(&argc, argv);
     
-    XCTestSuiteRun *tsr = (XCTestSuiteRun *)testRun;
-    
-    XCTestSuite *gts = [XCTestSuite testSuiteWithName:@"Google Tests"];
-    XCTestSuiteRun *gtsr = [XCTestSuiteRun testRunWithTest:gts];
-
     ::testing::TestEventListeners& listeners = ::testing::UnitTest::GetInstance()->listeners();
     // Remove the standard output writer
     delete listeners.Release(listeners.default_result_printer());
     // Add our own XCUnit-compatible version.  Google Test takes ownership.
-    listeners.Append(new XCUnitPrinter(gtsr));
+    listeners.Append(new GTestRunCollector((XCTestSuiteRun *)run));
     
     RUN_ALL_TESTS();
+}
 
-    [(XCTestSuite *)[tsr test] addTest:gts];
-    [tsr addTestRun:gtsr];
+- (XCTestRun *)run {
+    return [super run];
+}
+
+@end
+
+@implementation GoogleTests
+
++ (XCTestSuite *)defaultTestSuite {
+    XCTestSuite *answer = [GoogleTestSuite testSuite];
+    return answer;
+}
+
+- (id)initWithName:(NSString *)name {
+    if (self = [super init]) {
+        _name = name;
+    }
+    return self;
+}
+
+// This is the name written to the test run output log. Xcode doesn't display it.
+// XCode displays the value of testMethodName.
+- (NSString *)name {
+    return [NSString stringWithFormat:@"-[GoogleTests %@]", _name];
+}
+
+- (NSString *)testClassName {
+    return @"GoogleTests";
+}
+
+- (NSString *)testMethodName {
+    return _name;
 }
 
 @end
