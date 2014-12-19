@@ -45,6 +45,7 @@ public:
 	const void *keyFetch(int *pAmt);
 	const void *dataFetch(int *pAmt);
 	int insert(const void *pKey, i64 nKey, const void *pData, int nData, int nZero, bool appendBias, int seekResult);
+    int putData(u32 offset, u32 amt, const void *pData);
 	int deleteCurrent();
 	int deleteKey(SqliteKey *pKey);
 	int dropTable();

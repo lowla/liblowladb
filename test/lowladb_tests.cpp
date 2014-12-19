@@ -138,3 +138,126 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     check = cursor->next();
     EXPECT_FALSE(check);
 }
+
+TEST_F(DbTestFixture, test_parse_syncer_response) {
+    CLowlaDBBson::ptr syncResponse = CLowlaDBBson::create();
+    
+    syncResponse->appendInt("sequence", 2);
+    syncResponse->startArray("atoms");
+    syncResponse->startObject("0");
+    syncResponse->appendString("id", "1234");
+    syncResponse->appendInt("sequence", 1);
+    syncResponse->appendInt("version", 1);
+    syncResponse->appendBool("deleted", false);
+    syncResponse->finishObject();
+    syncResponse->finishArray();
+    syncResponse->finish();
+    
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
+    EXPECT_FALSE(pd->hasRequestMore());
+    EXPECT_FALSE(pd->isComplete());
+    EXPECT_FALSE(pd->hasRequestMore());
+    EXPECT_EQ("", pd->getRequestMore());
+    EXPECT_EQ(1, pd->getSequenceForNextRequest());
+}
+
+TEST_F(DbTestFixture, test_pull_new_document) {
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
+    
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
+
+    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
+    CLowlaDBBson::ptr data = CLowlaDBBson::create();
+    
+    meta->appendString("id", "serverdb.servercoll$1234");
+    meta->appendString("clientNs", "mydb.mycoll");
+    meta->finish();
+    
+    data->appendString("myfield", "mystring");
+    data->appendString("_id", "1234");
+    data->finish();
+    
+    std::vector<CLowlaDBBson::ptr> response;
+    response.push_back(meta);
+    response.push_back(data);
+    lowladb_apply_pull_response(response, pd);
+    
+    // Make sure we created the document
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll);
+    CLowlaDBBson::ptr check = cursor->next();
+    EXPECT_TRUE(check->containsKey("myfield"));
+    EXPECT_EQ("mystring", check->stringForKey("myfield"));
+    
+    // Make sure we updated the pull data
+    EXPECT_TRUE(pd->isComplete());
+    EXPECT_EQ(2, pd->getSequenceForNextRequest());
+}
+
+TEST_F(DbTestFixture, test_pull_existing_document) {
+    
+}
+
+TEST_F(DbTestFixture, test_pull_modified_document) {
+    
+}
+
+TEST_F(DbTestFixture, test_parse_syncer_response_json) {
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
+    
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
+    EXPECT_FALSE(pd->hasRequestMore());
+    EXPECT_FALSE(pd->isComplete());
+    EXPECT_FALSE(pd->hasRequestMore());
+    EXPECT_EQ("", pd->getRequestMore());
+    EXPECT_EQ(1, pd->getSequenceForNextRequest());
+}
+
+TEST(BsonToJson, testString) {
+    CLowlaDBBson::ptr value = CLowlaDBBson::create();
+    value->appendString("mystring", "my value");
+    value->finish();
+    
+    EXPECT_EQ("{\n   \"mystring\" : \"my value\"\n}\n", lowladb_bson_to_json(value->data()));
+}
+
+TEST(JsonToBson, testString) {
+    CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"mystring\" : \"myvalue\"}");
+    EXPECT_EQ("myvalue", bson->stringForKey("mystring"));
+}
+
+TEST(JsonToBson, testInt) {
+    CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"myint\" : 7}");
+    int check = 0;
+    EXPECT_TRUE(bson->intForKey("myint", &check));
+    EXPECT_EQ(7, check);
+}
+
+TEST(JsonToBson, testArray) {
+    CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"myarr\" : [13,27]}");
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(bson->arrayForKey("myarr", &arr));
+    int check = 0;
+    EXPECT_TRUE(arr->intForKey("0", &check));
+    EXPECT_EQ(13, check);
+    EXPECT_TRUE(arr->intForKey("1", &check));
+    EXPECT_EQ(27, check);
+    EXPECT_FALSE(arr->intForKey("2", &check));
+}
+
+TEST(JsonToBson, testObject) {
+    CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"myobj\" : {\"b\" : 3, \"a\" : 4}}");
+    CLowlaDBBson::ptr obj;
+    EXPECT_TRUE(bson->objectForKey("myobj", &obj));
+    int check = 0;
+    EXPECT_TRUE(obj->intForKey("a", &check));
+    EXPECT_EQ(4, check);
+    EXPECT_TRUE(obj->intForKey("b", &check));
+    EXPECT_EQ(3, check);
+}
+
+TEST(JsonToBson, testDate) {
+    CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"mydate\" : {\"_bsonType\" : \"Date\", \"millis\" : 1414782231657}}");
+    int64_t millis;
+    EXPECT_TRUE(bson->dateForKey("mydate", &millis));
+    EXPECT_EQ(1414782231657, millis);
+}

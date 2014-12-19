@@ -38,6 +38,11 @@ public:
     void appendDate(const utf16string &key, int64_t value);
     void appendInt(const utf16string &key, int value);
     void appendLong(const utf16string &key, int64_t value);
+
+    void startArray(const utf16string &key);
+    void finishArray();
+    void startObject(const utf16string &key);
+    void finishObject();
     
     bool containsKey(const utf16string &key);
     bool doubleForKey(const utf16string &key, double *ret);
@@ -141,6 +146,12 @@ public:
     static CLowlaDBPullData::ptr create(std::unique_ptr<CLowlaDBPullDataImpl> &pimpl);
     CLowlaDBPullDataImpl *pimpl();
     
+    bool hasRequestMore();
+    utf16string getRequestMore();
+    
+    bool isComplete();
+    int getSequenceForNextRequest();
+    
 private:
     std::unique_ptr<CLowlaDBPullDataImpl> m_pimpl;
     CLowlaDBPullData(std::unique_ptr<CLowlaDBPullDataImpl> &pimpl);
@@ -157,6 +168,9 @@ CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bson);
 CLowlaDBBson::ptr lowladb_create_push_request();
 void lowladb_apply_push_response(const char *bson);
 CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd);
-void lowladb_apply_pull_response(const char *bson, CLowlaDBPullData::ptr pd);
+void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> response, CLowlaDBPullData::ptr pd);
+
+CLowlaDBBson::ptr lowladb_json_to_bson(const utf16string &json);
+utf16string lowladb_bson_to_json(const char *bson);
 
 #endif

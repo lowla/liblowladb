@@ -120,10 +120,18 @@ void GTestRunCollector::OnTestProgramEnd(const ::testing::UnitTest &unit_test)
     return self;
 }
 
+- (NSUInteger)testCaseCount {
+    return 1;
+}
+
 // This is the name written to the test run output log. Xcode doesn't display it.
 // XCode displays the value of testMethodName.
 - (NSString *)name {
     return [NSString stringWithFormat:@"-[GoogleTests %@]", _name];
+}
+
+- (NSString *)languageAgnosticTestMethodName {
+    return _name;
 }
 
 - (NSString *)testClassName {

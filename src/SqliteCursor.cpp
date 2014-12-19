@@ -23,7 +23,10 @@ SqliteCursor::~SqliteCursor() {
 int SqliteCursor::create(Btree *pBtree, int iTable, int wrFlag, struct KeyInfo *pKeyInfo) {
     int rc = sqlite3BtreeLockTable(pBtree, iTable, wrFlag);
 	rc = sqlite3BtreeCursor(pBtree, iTable, wrFlag, pKeyInfo, &cursor);
-    sqlite3BtreeEnter(pBtree);
+    if (SQLITE_OK == rc) {
+        sqlite3BtreeEnter(pBtree);
+        sqlite3BtreeCacheOverflow(&cursor);
+    }
 	open = (SQLITE_OK == rc);
 	return rc;
 }
@@ -87,6 +90,11 @@ const void *SqliteCursor::dataFetch(int *pAmt) {
 int SqliteCursor::insert(const void *pKey, i64 nKey, const void *pData, int nData, int nZero, bool appendBias, int seekResult) {
 	int rc = sqlite3BtreeInsert(&cursor, pKey, nKey, pData, nData, nZero, appendBias, seekResult);
 	return rc;
+}
+
+int SqliteCursor::putData(u32 offset, u32 amt, const void *pData) {
+    int rc = sqlite3BtreePutData(&cursor, offset, amt, (void *)pData);
+    return rc;
 }
 
 int SqliteCursor::deleteCurrent() {
