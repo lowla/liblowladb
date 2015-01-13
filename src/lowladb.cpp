@@ -91,6 +91,8 @@ public:
     ~CLowlaDBImpl();
     
     std::unique_ptr<CLowlaDBCollectionImpl> createCollection(const utf16string &name);
+    void collectionNames(std::vector<utf16string> *plstNames);
+    
     SqliteCursor::ptr openCursor(int root);
     Btree *btree();
 
@@ -384,6 +386,10 @@ CLowlaDBCollection::ptr CLowlaDB::createCollection(const utf16string &name) {
     return CLowlaDBCollection::create(pimpl);
 }
 
+void CLowlaDB::collectionNames(std::vector<utf16string> *plstNames) {
+    m_pimpl->collectionNames(plstNames);
+}
+
 std::unique_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf16string &name) {
     SqliteCursor headerCursor;
     Btree *pBt = m_pDb->aDb[0].pBt;
@@ -464,6 +470,37 @@ std::unique_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf
 
     tx.commit();
     return std::unique_ptr<CLowlaDBCollectionImpl>(new CLowlaDBCollectionImpl(this, name, collRoot, collLogRoot));
+}
+
+void CLowlaDBImpl::collectionNames(std::vector<utf16string> *plstNames) {
+    SqliteCursor headerCursor;
+    Btree *pBt = m_pDb->aDb[0].pBt;
+    
+    Tx tx(pBt);
+    
+    int rc = headerCursor.create(pBt, 1, CURSOR_READONLY, NULL);
+    if (SQLITE_OK != rc) {
+        return;
+    }
+    int res;
+    rc = headerCursor.first(&res);
+    while (SQLITE_OK == rc && 0 == res) {
+        int wdc;
+        const void *rawData = headerCursor.dataFetch(&wdc);
+        bson data[1];
+        bson_init_finished_data(data, (char *)rawData, false);
+        bson_iterator it[1];
+        bson_type type = bson_find(it, data, "collName");
+        const char *foundName = "";
+        if (BSON_STRING == type) {
+            foundName = bson_iterator_string(it);
+            plstNames->push_back(foundName);
+        }
+        bson_destroy(data);
+        
+        rc = headerCursor.next(&res);
+    }
+    headerCursor.close();
 }
 
 Btree *CLowlaDBImpl::btree() {

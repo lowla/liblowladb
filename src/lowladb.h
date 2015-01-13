@@ -115,6 +115,7 @@ public:
     static CLowlaDB::ptr open(const utf16string &name);
     
     CLowlaDBCollection::ptr createCollection(const utf16string &name);
+    void collectionNames(std::vector<utf16string> *plstNames);
     
 private:
     std::unique_ptr<CLowlaDBImpl> m_pimpl;

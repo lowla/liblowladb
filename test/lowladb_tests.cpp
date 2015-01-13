@@ -30,6 +30,21 @@ DbTestFixture::~DbTestFixture() {
     lowladb_db_delete("mydb");
 }
 
+TEST_F(DbTestFixture, test_collection_names) {
+    std::vector<utf16string> lstNames;
+    
+    db->collectionNames(&lstNames);
+    EXPECT_EQ(1, lstNames.size());
+    EXPECT_EQ("mycoll", lstNames.front());
+    
+    db->createCollection("coll2.sub");
+    lstNames.clear();
+    db->collectionNames(&lstNames);
+    EXPECT_EQ(2, lstNames.size());
+    EXPECT_EQ("mycoll", lstNames.front());
+    EXPECT_EQ("coll2.sub", lstNames[1]);
+}
+
 TEST_F(DbTestFixture, test_can_create_single_string_documents) {
     CLowlaDBBson::ptr bson = CLowlaDBBson::create();
     bson->appendString("myfield", "mystring");
