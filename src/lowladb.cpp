@@ -135,8 +135,14 @@ private:
 
 class CLowlaDBBsonImpl : public bson {
 public:
+    typedef enum {
+        OWN, // Takes ownership of the bson data and will free it when done
+        REF, // Holds a reference to the data but the caller is responsible for freeing it later
+        COPY // Makes a copy of the bson data, leaving the caller to free the original any time
+    } Mode;
+    
     CLowlaDBBsonImpl();
-    CLowlaDBBsonImpl(const char *data, bool ownsData);
+    CLowlaDBBsonImpl(const char *data, Mode ownsData);
     ~CLowlaDBBsonImpl();
     
     bool containsKey(const utf16string &key);
@@ -178,6 +184,7 @@ class CLowlaDBCollectionImpl {
 public:
     CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot);
     std::unique_ptr<CLowlaDBWriteResultImpl> insert(CLowlaDBBsonImpl *obj, const utf16string &lowlaId);
+    std::unique_ptr<CLowlaDBWriteResultImpl> insert(std::vector<CLowlaDBBsonImpl> &arr);
     std::unique_ptr<CLowlaDBWriteResultImpl> save(CLowlaDBBsonImpl *obj);
     std::unique_ptr<CLowlaDBWriteResultImpl> update(CLowlaDBBsonImpl *query, CLowlaDBBsonImpl *object, bool upsert, bool multi);
     
@@ -226,16 +233,18 @@ private:
 
 class CLowlaDBCursorImpl {
 public:
-    CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, CLowlaDBBsonImpl *query, CLowlaDBBsonImpl *keys);
+    CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys);
     CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other);
     
     std::unique_ptr<CLowlaDBCursorImpl> limit(int limit);
+    std::unique_ptr<CLowlaDBCursorImpl> skip(int skip);
     std::unique_ptr<CLowlaDBCursorImpl> showDiskLoc();
     std::unique_ptr<CLowlaDBBsonImpl> next();
     
     SqliteCursor::ptr sqliteCursor();
     int64_t currentId();
     std::unique_ptr<CLowlaDBBsonImpl> currentMeta();
+    int64_t count();
     
 private:
     bool matches(CLowlaDBBsonImpl *found);
@@ -246,10 +255,11 @@ private:
     SqliteCursor::ptr m_cursor;
     
     CLowlaDBCollectionImpl *m_coll;
-    CLowlaDBBsonImpl *m_query;
-    CLowlaDBBsonImpl *m_keys;
+    std::shared_ptr<CLowlaDBBsonImpl> m_query;
+    std::shared_ptr<CLowlaDBBsonImpl> m_keys;
     
     int m_limit;
+    int m_skip;
     bool m_showDiskLoc;
 };
 
@@ -525,21 +535,30 @@ CLowlaDBCollection::CLowlaDBCollection(std::unique_ptr<CLowlaDBCollectionImpl> &
 }
 
 CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const char *bsonData) {
-    std::unique_ptr<CLowlaDBBsonImpl> bson(new CLowlaDBBsonImpl(bsonData, false));
-    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(bson.get(), "");
+    CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
+    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(&bson, "");
+    return CLowlaDBWriteResult::create(pimpl);
+}
+
+CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const std::vector<const char *> &bsonData) {
+    std::vector<CLowlaDBBsonImpl> bsonArr;
+    for (const char *bson : bsonData) {
+        bsonArr.emplace_back(bson, CLowlaDBBsonImpl::REF);
+    }
+    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(bsonArr);
     return CLowlaDBWriteResult::create(pimpl);
 }
 
 CLowlaDBWriteResult::ptr CLowlaDBCollection::save(const char *bsonData) {
-    std::unique_ptr<CLowlaDBBsonImpl> bson(new CLowlaDBBsonImpl(bsonData, false));
-    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->save(bson.get());
+    CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
+    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->save(&bson);
     return CLowlaDBWriteResult::create(pimpl);
 }
 
 CLowlaDBWriteResult::ptr CLowlaDBCollection::update(const char *queryBson, const char *objectBson, bool upsert, bool multi) {
-    std::unique_ptr<CLowlaDBBsonImpl> query(new CLowlaDBBsonImpl(queryBson, false));
-    std::unique_ptr<CLowlaDBBsonImpl> object(new CLowlaDBBsonImpl(objectBson, false));
-    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->update(query.get(), object.get(), upsert, multi);
+    CLowlaDBBsonImpl query(queryBson, CLowlaDBBsonImpl::REF);
+    CLowlaDBBsonImpl object(objectBson, CLowlaDBBsonImpl::REF);
+    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->update(&query, &object, upsert, multi);
     return CLowlaDBWriteResult::create(pimpl);
 }
 
@@ -598,6 +617,53 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDB
     return answer;
 }
 
+std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vector<CLowlaDBBsonImpl> &arr) {
+
+    std::unique_ptr<CLowlaDBWriteResultImpl> answer(new CLowlaDBWriteResultImpl);
+    answer->setUpdateOfExisting(false);
+    
+    Tx tx(m_db->btree());
+    SqliteCursor::ptr cursor = m_db->openCursor(m_root);
+    SqliteCursor::ptr logCursor = m_db->openCursor(m_logRoot);
+
+    for (int i = 0 ; i < arr.size() ; ++i) {
+        CLowlaDBBsonImpl *obj = &arr[i];
+        CLowlaDBBsonImpl fixed;
+        if (!obj->containsKey("_id")) {
+            bson_oid_t newOid;
+            bson_oid_gen(&newOid);
+            fixed.appendOid("_id", &newOid);
+            fixed.appendAll(obj);
+            fixed.finish();
+            obj = &fixed;
+        }
+    
+        int res = 0;
+        int rc = cursor->last(&res);
+        i64 lastInternalId = 0;
+        if (SQLITE_OK == rc && 0 == res) {
+            rc = cursor->keySize(&lastInternalId);
+        }
+        i64 newId = lastInternalId + 1;
+        CLowlaDBBsonImpl meta;
+        meta.appendString("id", generateLowlaId(this, obj));
+        meta.finish();
+        rc = cursor->insert(NULL, newId, obj->data(), (int)obj->size(), (int)meta.size(), true, 0);
+        if (SQLITE_OK == rc) {
+            rc = cursor->movetoUnpacked(nullptr, newId, 0, &res);
+            cursor->putData((int)obj->size(), (int)meta.size(), meta.data());
+            static char logData[] = {0, 0, 0, 0, LOGTYPE_INSERT};
+            rc = logCursor->insert(NULL, newId, logData, sizeof(logData), 0, true, 0);
+        }
+    }
+    
+    logCursor->close();
+    cursor->close();
+    tx.commit();
+    
+    return answer;
+}
+
 std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::save(CLowlaDBBsonImpl *obj) {
     if (obj->containsKey("_id)")) {
         CLowlaDBBsonImpl query;
@@ -613,7 +679,10 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::save(CLowlaDBBs
 std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::update(CLowlaDBBsonImpl *query, CLowlaDBBsonImpl *object, bool upsert, bool multi) {
 
     Tx tx(m_db->btree());
-    std::unique_ptr<CLowlaDBCursorImpl> cursor(new CLowlaDBCursorImpl(this, query, nullptr));
+
+    // The cursor needs a shared_ptr so we create a new ClowlaDBBsonImpl using the incoming data
+    std::shared_ptr<CLowlaDBBsonImpl> cursorQuery(new CLowlaDBBsonImpl(query->data(), CLowlaDBBsonImpl::REF));
+    std::unique_ptr<CLowlaDBCursorImpl> cursor(new CLowlaDBCursorImpl(this, cursorQuery, nullptr));
     if (!multi) {
         cursor = cursor->limit(1);
     }
@@ -657,13 +726,13 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCollectionImpl::applyUpdate(CLowlaDBBs
         std::unique_ptr<CLowlaDBBsonImpl> set;
         std::unique_ptr<CLowlaDBBsonImpl> unset;
         if (update->objectForKey("$set", &tmp)) {
-            set.reset(new CLowlaDBBsonImpl(tmp, false));
+            set.reset(new CLowlaDBBsonImpl(tmp, CLowlaDBBsonImpl::REF));
         }
         else {
             set.reset(new CLowlaDBBsonImpl);
         }
         if (update->objectForKey("$unset", &tmp)) {
-            unset.reset(new CLowlaDBBsonImpl(tmp, false));
+            unset.reset(new CLowlaDBBsonImpl(tmp, CLowlaDBBsonImpl::REF));
         }
         else {
             unset.reset(new CLowlaDBBsonImpl);
@@ -753,17 +822,17 @@ std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocu
         int metaSize = dataSize - objSize;
         char meta[metaSize];
         cursor->data(objSize, metaSize, meta);
-        CLowlaDBBsonImpl metaBson(meta, false);
+        CLowlaDBBsonImpl metaBson(meta, CLowlaDBBsonImpl::REF);
         utf16string foundKey = metaBson.stringForKey("id");
         if (foundKey == id) {
             char *data = (char *)bson_malloc(objSize);
             cursor->data(0, objSize, data);
-            answer->m_found.reset(new CLowlaDBBsonImpl(data, true));
+            answer->m_found.reset(new CLowlaDBBsonImpl(data, CLowlaDBBsonImpl::OWN));
             // Copy the metaBson into malloced data so we can return it safely. We only do this once
             // we've found the match to avoid lots of slow heap access.
             char *meta = (char *)bson_malloc(metaSize);
             memcpy(meta, metaBson.data(), metaBson.size());
-            answer->m_foundMeta.reset(new CLowlaDBBsonImpl(meta, true));
+            answer->m_foundMeta.reset(new CLowlaDBBsonImpl(meta, CLowlaDBBsonImpl::OWN));
             cursor->keySize(&answer->m_sqliteId);
             answer->m_logCursor = m_db->openCursor(m_logRoot);
             int resLog;
@@ -792,7 +861,7 @@ bool CLowlaDBCollectionImpl::shouldPullDocument(const CLowlaDBBsonImpl *atom) {
         // If the found record has the same version then don't want to pull
         const char *_lowlaObj;
         if (loc->m_found->objectForKey("_lowla", &_lowlaObj)) {
-            CLowlaDBBsonImpl _lowla(_lowlaObj, false);
+            CLowlaDBBsonImpl _lowla(_lowlaObj, CLowlaDBBsonImpl::REF);
             utf16string foundVersion = _lowla.stringForKey("version");
             utf16string atomVersion = atom->stringForKey("version");
             if (foundVersion == atomVersion) {
@@ -875,7 +944,8 @@ CLowlaDBBson::ptr CLowlaDBBson::create(std::unique_ptr<CLowlaDBBsonImpl> &pimpl)
 }
 
 CLowlaDBBson::ptr CLowlaDBBson::create(const char *bson, bool ownsData) {
-    std::unique_ptr<CLowlaDBBsonImpl> pimpl(new CLowlaDBBsonImpl(bson, ownsData));
+    CLowlaDBBsonImpl::Mode mode = ownsData ? CLowlaDBBsonImpl::OWN : CLowlaDBBsonImpl::REF;
+    std::unique_ptr<CLowlaDBBsonImpl> pimpl(new CLowlaDBBsonImpl(bson, mode));
     return CLowlaDBBson::ptr(new CLowlaDBBson(pimpl));
 }
 
@@ -1008,8 +1078,18 @@ CLowlaDBBsonImpl::CLowlaDBBsonImpl() {
     bson_init(this);
 }
 
-CLowlaDBBsonImpl::CLowlaDBBsonImpl(const char *data, bool ownsData) {
-    bson_init_finished_data(this, (char *)data, ownsData);
+CLowlaDBBsonImpl::CLowlaDBBsonImpl(const char *data, Mode mode) {
+    switch (mode) {
+        case OWN:
+            bson_init_finished_data(this, (char *)data, true);
+            break;
+        case REF:
+            bson_init_finished_data(this, (char *)data, false);
+            break;
+        case COPY:
+            bson_init_finished_data_with_copy(this, data);
+            break;
+    }
 }
 
 CLowlaDBBsonImpl::~CLowlaDBBsonImpl() {
@@ -1047,7 +1127,7 @@ void CLowlaDBBsonImpl::appendString(const utf16string &key, const utf16string &v
 
 void CLowlaDBBsonImpl::appendObject(const utf16string &key, const char *value) {
     bson_append_start_object(this, key.c_str(utf16string::UTF8));
-    CLowlaDBBsonImpl obj(value, false);
+    CLowlaDBBsonImpl obj(value, CLowlaDBBsonImpl::REF);
     appendAll(&obj);
     bson_append_finish_object(this);
 }
@@ -1218,8 +1298,14 @@ CLowlaDBCursorImpl *CLowlaDBCursor::pimpl() {
     return m_pimpl.get();
 }
 
-CLowlaDBCursor::ptr CLowlaDBCursor::create(CLowlaDBCollection::ptr coll) {
-    std::unique_ptr<CLowlaDBCursorImpl> pimpl(new CLowlaDBCursorImpl(coll->pimpl(), nullptr, nullptr));
+CLowlaDBCursor::ptr CLowlaDBCursor::create(CLowlaDBCollection::ptr coll, const char *query) {
+    // Cursors have a complex lifetime so this is one of the few cases where we need to copy the bson
+    std::shared_ptr<CLowlaDBBsonImpl> bsonQuery;
+    if (query) {
+        bsonQuery.reset(new CLowlaDBBsonImpl(query, CLowlaDBBsonImpl::COPY));
+    }
+    
+    std::unique_ptr<CLowlaDBCursorImpl> pimpl(new CLowlaDBCursorImpl(coll->pimpl(), bsonQuery, std::shared_ptr<CLowlaDBBsonImpl>()));
     return create(pimpl);
 }
 
@@ -1228,9 +1314,18 @@ CLowlaDBCursor::ptr CLowlaDBCursor::limit(int limit) {
     return create(pimpl);
 }
 
+CLowlaDBCursor::ptr CLowlaDBCursor::skip(int skip) {
+    std::unique_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->skip(skip);
+    return create(pimpl);
+}
+
 CLowlaDBBson::ptr CLowlaDBCursor::next() {
     std::unique_ptr<CLowlaDBBsonImpl> answer = m_pimpl->next();
     return CLowlaDBBson::create(answer);
+}
+
+int64_t CLowlaDBCursor::count() {
+    return m_pimpl->count();
 }
 
 CLowlaDBCursor::CLowlaDBCursor(std::unique_ptr<CLowlaDBCursorImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
@@ -1239,12 +1334,18 @@ CLowlaDBCursor::CLowlaDBCursor(std::unique_ptr<CLowlaDBCursorImpl> &pimpl) : m_p
 CLowlaDBCursorImpl::CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other) : m_coll(other.m_coll), m_query(other.m_query), m_keys(other.m_keys), m_limit(other.m_limit), m_showDiskLoc(other.m_showDiskLoc) {
 }
 
-CLowlaDBCursorImpl::CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, CLowlaDBBsonImpl *query, CLowlaDBBsonImpl *keys) : m_coll(coll), m_query(query), m_keys(keys), m_limit(0), m_showDiskLoc(false) {
+CLowlaDBCursorImpl::CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys) : m_coll(coll), m_query(query), m_keys(keys), m_limit(0), m_skip(0), m_showDiskLoc(false) {
 }
 
 std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::limit(int limit) {
     std::unique_ptr<CLowlaDBCursorImpl> answer(new CLowlaDBCursorImpl(*this));
     answer->m_limit = limit;
+    return answer;
+}
+
+std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::skip(int skip) {
+    std::unique_ptr<CLowlaDBCursorImpl> answer(new CLowlaDBCursorImpl(*this));
+    answer->m_skip = skip;
     return answer;
 }
 
@@ -1270,13 +1371,14 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::next() {
         m_cursor->dataSize(&size);
         char *data = (char *)bson_malloc(size);
         m_cursor->data(0, size, data);
-        CLowlaDBBsonImpl found(data, false);
+        CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::REF);
         if (nullptr == m_query || matches(&found)) {
             i64 id;
             m_cursor->keySize(&id);
             std::unique_ptr<CLowlaDBBsonImpl> answer = project(&found, id);
             return answer;
         }
+        bson_free(data);
         rc = m_cursor->next(&res);
     }
     return std::unique_ptr<CLowlaDBBsonImpl>();
@@ -1295,7 +1397,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::currentMeta() {
     int metaSize = dataSize - objSize;
     char *meta = (char *)bson_malloc(metaSize);
     m_cursor->data(objSize, metaSize, meta);
-    return std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl(meta, true));
+    return std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl(meta, CLowlaDBBsonImpl::OWN));
 }
 
 int64_t CLowlaDBCursorImpl::currentId() {
@@ -1310,7 +1412,7 @@ bool CLowlaDBCursorImpl::matches(CLowlaDBBsonImpl *found) {
         return true;
     }
     bson_iterator it[1];
-    bson_iterator_init(it, m_query);
+    bson_iterator_init(it, m_query.get());
     while (bson_iterator_next(it)) {
         const char *key = bson_iterator_key(it);
         if (!found->containsKey(key)) {
@@ -1329,7 +1431,7 @@ bool CLowlaDBCursorImpl::matches(CLowlaDBBsonImpl *found) {
 
 std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::project(CLowlaDBBsonImpl *found, i64 id) {
     if (nullptr == m_keys && !m_showDiskLoc) {
-        std::unique_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl(found->data(), true));
+        std::unique_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl(found->data(), CLowlaDBBsonImpl::OWN));
         return answer;
     }
     std::unique_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl());
@@ -1340,6 +1442,48 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::project(CLowlaDBBsonImpl *
         diskLoc->appendLong("offset", id);
         diskLoc->finish();
         answer->appendObject("$diskLoc", diskLoc->data());
+    }
+    return answer;
+}
+
+int64_t CLowlaDBCursorImpl::count() {
+    if (!m_tx) {
+        m_tx.reset(new Tx(m_coll->db()->btree()));
+        m_cursor = m_coll->openCursor();
+    }
+    
+    int rc;
+    int res;
+    i64 answer = 0;
+    
+    rc = m_cursor->first(&res);
+    if (nullptr == m_query) {
+        answer = m_cursor->count();
+    }
+    else {
+        while (SQLITE_OK == res && 0 == rc) {
+            u32 size;
+            m_cursor->dataSize(&size);
+            char *data = (char *)bson_malloc(size);
+            m_cursor->data(0, size, data);
+            CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::OWN);
+            if (matches(&found)) {
+                ++answer;
+                if (0 != m_limit && m_skip + m_limit <= answer) {
+                    break;
+                }
+            }
+            rc = m_cursor->next(&res);
+        }
+    }
+    if (answer <= m_skip) {
+        answer = 0;
+    }
+    else if (0 == m_limit || answer <= m_skip + m_limit) {
+        answer -= m_skip;
+    }
+    else {
+        answer = m_limit;
     }
     return answer;
 }
@@ -1420,7 +1564,7 @@ CLowlaDBPullDataImpl::CLowlaDBPullDataImpl() : m_sequence(0) {
 }
 
 void CLowlaDBPullDataImpl::appendAtom(const char *atomBson) {
-    m_atoms.emplace_back(atomBson, false);
+    m_atoms.emplace_back(atomBson, CLowlaDBBsonImpl::REF);
 }
 
 void CLowlaDBPullDataImpl::setSequence(int sequence) {
@@ -1484,7 +1628,7 @@ void lowladb_db_delete(const utf16string &name) {
 }
 
 CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bsonData) {
-    CLowlaDBBsonImpl bson(bsonData, false);
+    CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
     std::unique_ptr<CLowlaDBPullDataImpl> pd(new CLowlaDBPullDataImpl);
     int sequence;
     if (bson.intForKey("sequence", &sequence)) {
@@ -1492,7 +1636,7 @@ CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bsonData) {
     }
     const char *atoms;
     if (bson.arrayForKey("atoms", &atoms)) {
-        CLowlaDBBsonImpl array(atoms, false);
+        CLowlaDBBsonImpl array(atoms, CLowlaDBBsonImpl::REF);
         int i = 0;
         char szBuf[20];
         sprintf(szBuf, "%d", i);

@@ -96,6 +96,7 @@ public:
     CLowlaDBCollectionImpl *pimpl();
     
     CLowlaDBWriteResult::ptr insert(const char *bsonData);
+    CLowlaDBWriteResult::ptr insert(const std::vector<const char *> &bsonData);
     CLowlaDBWriteResult::ptr save(const char *bsonData);
     CLowlaDBWriteResult::ptr update(const char *queryBson, const char *objectBson, bool upsert, bool multi);
     
@@ -130,9 +131,11 @@ public:
     static CLowlaDBCursor::ptr create(std::unique_ptr<CLowlaDBCursorImpl> &pimpl);
     CLowlaDBCursorImpl *pimpl();
 
-    static CLowlaDBCursor::ptr create(CLowlaDBCollection::ptr coll);
+    static CLowlaDBCursor::ptr create(CLowlaDBCollection::ptr coll, const char *query);
     CLowlaDBCursor::ptr limit(int limit);
+    CLowlaDBCursor::ptr skip(int skip);
     CLowlaDBBson::ptr next();
+    int64_t count();
     
 private:
     std::unique_ptr<CLowlaDBCursorImpl> m_pimpl;

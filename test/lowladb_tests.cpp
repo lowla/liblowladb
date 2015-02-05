@@ -67,6 +67,28 @@ TEST_F(DbTestFixture, test_create_new_id_for_each_document) {
     EXPECT_NE(0, memcmp(buf1, buf2, CLowlaDBBson::OID_SIZE));
 }
 
+TEST_F(DbTestFixture, test_insert_multiple_documents_with_success) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendString("myfield", "mystring");
+    bson->finish();
+    std::vector<const char *> arr;
+    arr.push_back(bson->data());
+    arr.push_back(bson->data());
+    CLowlaDBWriteResult::ptr wr = coll->insert(arr);
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    CLowlaDBBson::ptr doc1 = cursor->next();
+    CLowlaDBBson::ptr doc2 = cursor->next();
+    EXPECT_FALSE(!!cursor->next());
+    
+    char buf1[CLowlaDBBson::OID_SIZE];
+    char buf2[CLowlaDBBson::OID_SIZE];
+    EXPECT_TRUE(doc1->containsKey("myfield"));
+    EXPECT_TRUE(doc1->oidForKey("_id", buf1));
+    EXPECT_TRUE(doc2->containsKey("myfield"));
+    EXPECT_TRUE(doc2->oidForKey("_id", buf2));
+    EXPECT_NE(0, memcmp(buf1, buf2, CLowlaDBBson::OID_SIZE));
+}
+
 TEST_F(DbTestFixture, test_update_replace_single_doc) {
     CLowlaDBBson::ptr bson = CLowlaDBBson::create();
     bson->appendString("myfield", "mystring");
@@ -88,7 +110,7 @@ TEST_F(DbTestFixture, test_update_replace_single_doc) {
     EXPECT_TRUE(wrUpdate->isUpdateOfExisting());
     
     // Make sure we updated the document correctly, replacing existing fields and not changing _id
-    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll);
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
     EXPECT_TRUE(check->containsKey("myfield2"));
     EXPECT_EQ("mystring2", check->stringForKey("myfield2"));
@@ -133,7 +155,7 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     EXPECT_TRUE(wrUpdate->isUpdateOfExisting());
     
     // Make sure we updated the document correctly, replacing existing fields and not changing _id
-    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll);
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
     EXPECT_TRUE(check->containsKey("myfield"));
     EXPECT_EQ("mystringMod", check->stringForKey("myfield"));
@@ -152,6 +174,72 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     // Make sure we didn't create any unexpected documents
     check = cursor->next();
     EXPECT_FALSE(check);
+}
+
+class CountTestFixture : public DbTestFixture {
+public:
+    CountTestFixture();
+};
+
+CountTestFixture::CountTestFixture() {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 3);
+    bson->finish();
+    coll->insert(bson->data());
+}
+
+TEST_F(CountTestFixture, test_cursor_count_all) {
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_EQ(3, cursor->count());
+}
+
+TEST_F(CountTestFixture, test_cursor_count_emptyFilter) {
+    CLowlaDBBson::ptr filter = CLowlaDBBson::create();
+    filter->finish();
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, filter->data());
+    EXPECT_EQ(3, cursor->count());
+}
+
+TEST_F(CountTestFixture, test_cursor_count_filter) {
+    CLowlaDBBson::ptr filter = CLowlaDBBson::create();
+    filter->appendInt("a", 2);
+    filter->finish();
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, filter->data());
+    EXPECT_EQ(1, cursor->count());
+}
+
+TEST_F(CountTestFixture, test_cursor_count_filter_nomatch) {
+    CLowlaDBBson::ptr filter = CLowlaDBBson::create();
+    filter->appendInt("z", 2);
+    filter->finish();
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, filter->data());
+    EXPECT_EQ(0, cursor->count());
+}
+
+TEST_F(CountTestFixture, test_cursor_count_limit) {
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->limit(2);
+    EXPECT_EQ(2, cursor->count());
+}
+
+TEST_F(CountTestFixture, test_cursor_count_skip) {
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->skip(1);
+    EXPECT_EQ(2, cursor->count());
+}
+
+TEST_F(CountTestFixture, test_cursor_count_skip_limit) {
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->skip(1)->limit(1);
+    EXPECT_EQ(1, cursor->count());
 }
 
 TEST_F(DbTestFixture, test_parse_syncer_response) {
@@ -198,7 +286,7 @@ TEST_F(DbTestFixture, test_pull_new_document) {
     lowladb_apply_pull_response(response, pd);
     
     // Make sure we created the document
-    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll);
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
     EXPECT_TRUE(check->containsKey("myfield"));
     EXPECT_EQ("mystring", check->stringForKey("myfield"));

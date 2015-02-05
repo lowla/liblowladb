@@ -54,6 +54,7 @@ public:
 	bool isEmpty();
     bool isSeekMatch(UnpackedRecord *pIdxKey);
     i64 getPos();
+    i64 count();
     
 private:
 	BtCursor cursor;

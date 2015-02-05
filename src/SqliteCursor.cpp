@@ -163,3 +163,11 @@ i64 SqliteCursor::getPos() {
     }
     return 0;
 }
+
+i64 SqliteCursor::count() {
+    i64 answer;
+    if (SQLITE_OK == sqlite3BtreeCount(&cursor, &answer)) {
+        return answer;
+    }
+    return -1;
+}
