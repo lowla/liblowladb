@@ -365,11 +365,15 @@ CLowlaDBImpl::~CLowlaDBImpl() {
 }
 
 static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name) {
+    static sqlite3_mutex *mutex = sqlite3_mutex_alloc(SQLITE_MUTEX_RECURSIVE);
+    sqlite3_mutex_enter(mutex);
+    
     utf16string filePath = getFullPath(name);
     sqlite3 *pDb;
     int rc = sqlite3_open_v2(filePath.c_str(), &pDb, SQLITE_OPEN_READWRITE, 0);
     if (SQLITE_OK == rc) {
         std::unique_ptr<CLowlaDBImpl> pimpl(new CLowlaDBImpl(pDb));
+        sqlite3_mutex_leave(mutex);
         return pimpl;
     }
     rc = createDatabase(filePath);
@@ -378,8 +382,10 @@ static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name) {
     }
     if (SQLITE_OK == rc) {
         std::unique_ptr<CLowlaDBImpl> pimpl(new CLowlaDBImpl(pDb));
+        sqlite3_mutex_leave(mutex);
         return pimpl;
     }
+    sqlite3_mutex_leave(mutex);
     return std::unique_ptr<CLowlaDBImpl>();
 }
 
@@ -1772,34 +1778,66 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> response, 
     processLeadingDeletions(pullData, cache);
 }
 
-utf16string lowladb_bson_to_json(const char *bsonData) {
-    Json::Value root;
-    bson bson[1];
-    bson_init_finished_data(bson, (char *)bsonData, false);
+static void bson_to_json_value(const char *bsonData, Json::Value *value) {
+    bson bsonVal[1];
+    bson_init_finished_data(bsonVal, (char *)bsonData, false);
     bson_iterator it[1];
-    bson_iterator_init(it, bson);
+    bson_iterator_init(it, bsonVal);
     
     while (bson_iterator_next(it)) {
         const char *key = bson_iterator_key(it);
+        Json::Value *lval;
+        if (value->isArray()) {
+            lval = &(*value)[atoi(key)];
+        }
+        else {
+            lval = &(*value)[key];
+        }
         switch (bson_iterator_type(it)) {
-            case BSON_INT: {
-                root[key] = bson_iterator_int_raw(it);
-                break;
-            }
-            case BSON_LONG: {
-                root[key] = bson_iterator_long_raw(it);
-                break;
-            }
             case BSON_DOUBLE: {
-                root[key] = bson_iterator_double_raw(it);
+                *lval = bson_iterator_double_raw(it);
                 break;
             }
             case BSON_STRING: {
-                root[key] = bson_iterator_string(it);
+                *lval = bson_iterator_string(it);
+                break;
+            }
+            case BSON_OBJECT: {
+                Json::Value obj;
+                bson sub[1];
+                bson_iterator_subobject_init(it, sub, false);
+                bson_to_json_value(bson_data(sub), &obj);
+                *lval = obj;
+                break;
+            }
+            case BSON_ARRAY: {
+                Json::Value arr(Json::arrayValue);
+                bson sub[1];
+                bson_iterator_subobject_init(it, sub, false);
+                bson_to_json_value(bson_data(sub), &arr);
+                *lval = arr;
+                break;
+            }
+            case BSON_BOOL: {
+                *lval = (bool)bson_iterator_bool(it);
+                break;
+            }
+            case BSON_INT: {
+                *lval = bson_iterator_int_raw(it);
+                break;
+            }
+            case BSON_LONG: {
+                *lval = bson_iterator_long_raw(it);
                 break;
             }
         }
     }
+}
+
+utf16string lowladb_bson_to_json(const char *bsonData) {
+    Json::Value root;
+    
+    bson_to_json_value(bsonData, &root);
     return root.toStyledString().c_str();
 }
 

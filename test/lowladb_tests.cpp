@@ -315,12 +315,51 @@ TEST_F(DbTestFixture, test_parse_syncer_response_json) {
     EXPECT_EQ(1, pd->getSequenceForNextRequest());
 }
 
+TEST(BsonToJson, testDouble) {
+    CLowlaDBBson::ptr value = CLowlaDBBson::create();
+    value->appendDouble("pi", 3.14);
+    value->finish();
+    
+    EXPECT_EQ("{\n   \"pi\" : 3.14\n}\n", lowladb_bson_to_json(value->data()));
+}
+
 TEST(BsonToJson, testString) {
     CLowlaDBBson::ptr value = CLowlaDBBson::create();
     value->appendString("mystring", "my value");
     value->finish();
     
     EXPECT_EQ("{\n   \"mystring\" : \"my value\"\n}\n", lowladb_bson_to_json(value->data()));
+}
+
+TEST(BsonToJson, testObject) {
+    CLowlaDBBson::ptr value = CLowlaDBBson::create();
+    value->startObject("myobject");
+    value->appendString("mystring", "my value");
+    value->appendDouble("pi", 3.14);
+    value->finishObject();
+    value->finish();
+    
+    EXPECT_EQ("{\n   \"myobject\" : {\n      \"mystring\" : \"my value\",\n      \"pi\" : 3.14\n   }\n}\n", lowladb_bson_to_json(value->data()));
+}
+
+TEST(BsonToJson, testArray) {
+    CLowlaDBBson::ptr value = CLowlaDBBson::create();
+    value->startArray("myarray");
+    value->appendString("0", "my value");
+    value->appendDouble("1", 3.14);
+    value->finishArray();
+    value->finish();
+    
+    EXPECT_EQ("{\n   \"myarray\" : [ \"my value\", 3.14 ]\n}\n", lowladb_bson_to_json(value->data()));
+}
+
+TEST(BsonToJson, testBool) {
+    CLowlaDBBson::ptr value = CLowlaDBBson::create();
+    value->appendBool("mytrue", true);
+    value->appendBool("myfalse", false);
+    value->finish();
+    
+    EXPECT_EQ("{\n   \"myfalse\" : false,\n   \"mytrue\" : true\n}\n", lowladb_bson_to_json(value->data()));
 }
 
 TEST(JsonToBson, testString) {

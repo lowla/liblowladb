@@ -64,7 +64,7 @@ public:
     static const size_t OID_STRING_SIZE;
     static void oidToString(const char *oid, char *buffer);
     static void oidGenerate(char *buffer);
-        
+    
 private:
     std::unique_ptr<CLowlaDBBsonImpl> m_pimpl;
     
