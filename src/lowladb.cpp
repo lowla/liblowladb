@@ -62,7 +62,7 @@ public:
 
 class CLowlaDBPullDataImpl {
 public:
-    typedef std::vector<CLowlaDBBsonImpl>::const_iterator atomIterator;
+    typedef std::vector<CLowlaDBBsonImpl>::iterator atomIterator;
     
     CLowlaDBPullDataImpl();
     void appendAtom(const char *atomBson);
@@ -224,8 +224,8 @@ public:
     void detach();
     
 private:
-    const int TRANS_READONLY = 0;
-    const int TRANS_READWRITE = 1;
+    static const int TRANS_READONLY = 0;
+    static const int TRANS_READWRITE = 1;
     
     Btree *m_pBt;
     bool m_ownTx;
