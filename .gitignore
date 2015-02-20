@@ -17,3 +17,6 @@ DerivedData
 .idea/
 ios/test/Pods
 ios/test/Podfile.lock
+# Raspberry Pi
+pi/build
+
