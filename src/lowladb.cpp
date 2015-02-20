@@ -62,7 +62,7 @@ public:
 
 class CLowlaDBPullDataImpl {
 public:
-    typedef std::vector<CLowlaDBBsonImpl>::const_iterator atomIterator;
+    typedef std::vector<CLowlaDBBsonImpl>::iterator atomIterator;
     
     CLowlaDBPullDataImpl();
     void appendAtom(const char *atomBson);
@@ -224,8 +224,8 @@ public:
     void detach();
     
 private:
-    const int TRANS_READONLY = 0;
-    const int TRANS_READWRITE = 1;
+    static const int TRANS_READONLY = 0;
+    static const int TRANS_READWRITE = 1;
     
     Btree *m_pBt;
     bool m_ownTx;
@@ -238,6 +238,8 @@ public:
     
     std::unique_ptr<CLowlaDBCursorImpl> limit(int limit);
     std::unique_ptr<CLowlaDBCursorImpl> skip(int skip);
+    std::unique_ptr<CLowlaDBCursorImpl> sort(std::shared_ptr<CLowlaDBBsonImpl> sort);
+    
     std::unique_ptr<CLowlaDBCursorImpl> showDiskLoc();
     std::unique_ptr<CLowlaDBBsonImpl> next();
     
@@ -249,6 +251,12 @@ public:
 private:
     bool matches(CLowlaDBBsonImpl *found);
     std::unique_ptr<CLowlaDBBsonImpl> project(CLowlaDBBsonImpl *found, int64_t id);
+
+    std::unique_ptr<CLowlaDBBsonImpl> nextSorted();
+    std::unique_ptr<CLowlaDBBsonImpl> nextUnsorted();
+    void performSortedQuery();
+    void parseSortSpec();
+    std::shared_ptr<CLowlaDBBsonImpl> createSortKey(CLowlaDBBsonImpl *found);
     
     // The cursor has to come after the tx so that it is destructed (closed) before we end the tx
     std::unique_ptr<Tx> m_tx;
@@ -257,6 +265,11 @@ private:
     CLowlaDBCollectionImpl *m_coll;
     std::shared_ptr<CLowlaDBBsonImpl> m_query;
     std::shared_ptr<CLowlaDBBsonImpl> m_keys;
+    std::shared_ptr<CLowlaDBBsonImpl> m_sort;
+    std::vector<std::pair<std::vector<utf16string>, int>> m_parsedSort;
+    
+    std::vector<int64_t> m_sortedIds;
+    std::vector<int64_t>::iterator m_walkSorted;
     
     int m_limit;
     int m_skip;
@@ -1325,6 +1338,13 @@ CLowlaDBCursor::ptr CLowlaDBCursor::skip(int skip) {
     return create(pimpl);
 }
 
+CLowlaDBCursor::ptr CLowlaDBCursor::sort(const char *sort) {
+    std::shared_ptr<CLowlaDBBsonImpl> bsonSort(new CLowlaDBBsonImpl(sort, CLowlaDBBsonImpl::COPY));
+
+    std::unique_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->sort(bsonSort);
+    return create(pimpl);
+}
+
 CLowlaDBBson::ptr CLowlaDBCursor::next() {
     std::unique_ptr<CLowlaDBBsonImpl> answer = m_pimpl->next();
     return CLowlaDBBson::create(answer);
@@ -1337,7 +1357,7 @@ int64_t CLowlaDBCursor::count() {
 CLowlaDBCursor::CLowlaDBCursor(std::unique_ptr<CLowlaDBCursorImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
 }
 
-CLowlaDBCursorImpl::CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other) : m_coll(other.m_coll), m_query(other.m_query), m_keys(other.m_keys), m_limit(other.m_limit), m_skip(other.m_skip), m_showDiskLoc(other.m_showDiskLoc) {
+CLowlaDBCursorImpl::CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other) : m_coll(other.m_coll), m_query(other.m_query), m_keys(other.m_keys), m_sort(other.m_sort), m_limit(other.m_limit), m_skip(other.m_skip), m_showDiskLoc(other.m_showDiskLoc) {
 }
 
 CLowlaDBCursorImpl::CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys) : m_coll(coll), m_query(query), m_keys(keys), m_limit(0), m_skip(0), m_showDiskLoc(false) {
@@ -1355,6 +1375,12 @@ std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::skip(int skip) {
     return answer;
 }
 
+std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::sort(std::shared_ptr<CLowlaDBBsonImpl> sort) {
+    std::unique_ptr<CLowlaDBCursorImpl> answer(new CLowlaDBCursorImpl(*this));
+    answer->m_sort = sort;
+    return answer;
+}
+
 std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::showDiskLoc() {
     std::unique_ptr<CLowlaDBCursorImpl> answer(new CLowlaDBCursorImpl(*this));
     answer->m_showDiskLoc = true;
@@ -1362,6 +1388,15 @@ std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::showDiskLoc() {
 }
 
 std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::next() {
+    if (m_sort) {
+        return nextSorted();
+    }
+    else {
+        return nextUnsorted();
+    }
+}
+
+std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
     int rc;
     int res;
     if (!m_tx) {
@@ -1388,6 +1423,265 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::next() {
         rc = m_cursor->next(&res);
     }
     return std::unique_ptr<CLowlaDBBsonImpl>();
+}
+
+std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextSorted() {
+    int rc;
+    int res;
+    if (!m_tx) {
+        m_tx.reset(new Tx(m_coll->db()->btree()));
+        m_cursor = m_coll->openCursor();
+        performSortedQuery();
+    }
+    
+    while (m_walkSorted != m_sortedIds.end()) {
+        i64 id = *m_walkSorted++;
+        rc = m_cursor->movetoUnpacked(nullptr, id, 1, &res);
+        if (SQLITE_OK != rc || 0 != res) {
+            continue;
+        }
+        u32 size;
+        m_cursor->dataSize(&size);
+        char *data = (char *)bson_malloc(size);
+        m_cursor->data(0, size, data);
+        CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::REF);
+        std::unique_ptr<CLowlaDBBsonImpl> answer = project(&found, id);
+        return answer;
+    }
+    return std::unique_ptr<CLowlaDBBsonImpl>();
+}
+
+/* Compare two bson values using the algorithm described at http://docs.mongodb.org/master/reference/method/cursor.sort/#cursor.sort
+ */
+static int compareBsonFields(bson_iterator *itA, bson_iterator *itB)
+{
+    static const int typeOrder[] = { BSON_MINKEY, BSON_NULL, BSON_INT, BSON_STRING, BSON_OBJECT, BSON_ARRAY, BSON_BINDATA, BSON_OID, BSON_BOOL, BSON_DATE, BSON_TIMESTAMP, BSON_REGEX, BSON_MAXKEY};
+    
+    int typeA = bson_iterator_type(itA);
+    int typeB = bson_iterator_type(itB);
+
+    if (BSON_LONG == typeA || BSON_DOUBLE == typeA) {
+        typeA = BSON_INT;
+    }
+    if (BSON_SYMBOL == typeA) {
+        typeA = BSON_STRING;
+    }
+    if (BSON_LONG == typeB || BSON_DOUBLE == typeB) {
+        typeB = BSON_INT;
+    }
+    if (BSON_SYMBOL == typeB) {
+        typeB = BSON_STRING;
+    }
+    if (typeA != typeB) {
+        const int *end = typeOrder + sizeof(typeOrder) / sizeof(int);
+        auto posA = std::find(typeOrder, end, typeA);
+        auto posB = std::find(typeOrder, end, typeB);
+        return posA < posB ? -1 : +1;
+    }
+    switch (typeA) {
+        case BSON_MINKEY:
+        case BSON_NULL:
+        case BSON_MAXKEY:
+            return 0;
+        case BSON_INT: {
+            double dA = bson_iterator_double(itA);
+            double dB = bson_iterator_double(itB);
+            return dA < dB ? -1 : (dB < dA ? +1 : 0);
+        }
+        case BSON_STRING:
+            return strcmp(bson_iterator_string(itA), bson_iterator_string(itB));
+        case BSON_OBJECT: {
+            bson subA[1];
+            bson subB[1];
+            bson_iterator_subobject_init(itA, subA, false);
+            bson_iterator_subobject_init(itB, subB, false);
+            if (bson_size(subA) != bson_size(subB) ) {
+                return bson_size(subA) < bson_size(subB) ? -1 : +1;
+            }
+            return memcmp(bson_data(subA), bson_data(subB), bson_size(subA));
+        }
+        case BSON_ARRAY:
+            assert(false); // Arrays should have been replaced with their max/min value
+            break;
+        case BSON_BINDATA:
+            if (bson_iterator_bin_len(itA) != bson_iterator_bin_len(itB)) {
+                return bson_iterator_bin_len(itA) < bson_iterator_bin_len(itB) ? -1 : +1;
+            }
+            if (bson_iterator_bin_type(itA) != bson_iterator_bin_type(itB)) {
+                return bson_iterator_bin_type(itA) < bson_iterator_bin_type(itB) ? -1 : +1;
+            }
+            return memcmp(bson_iterator_bin_data(itA), bson_iterator_bin_data(itB), bson_iterator_bin_len(itA));
+        case BSON_OID:
+            return memcmp(bson_iterator_oid(itA), bson_iterator_oid(itB), sizeof(bson_oid_t));
+        case BSON_BOOL:
+            if (!bson_iterator_bool(itA)) {
+                return bson_iterator_bool(itB) ? -1 : 0;
+            }
+            else {
+                return bson_iterator_bool(itB) ? 0 : +1;
+            }
+        case BSON_DATE: {
+            bson_date_t dA = bson_iterator_date(itA);
+            bson_date_t dB = bson_iterator_date(itB);
+            return dA < dB ? -1 : (dA == dB ? 0 : +1);
+        }
+        case BSON_TIMESTAMP:
+        case BSON_REGEX:
+            assert(false); // We don't support these!
+            break;
+    }
+    return 0;
+}
+
+class MyLess {
+public:
+    MyLess(std::vector<std::pair<std::vector<utf16string>, int>> const &parsedSort) {
+        for (auto walk = parsedSort.begin() ; walk != parsedSort.end() ; ++walk) {
+            m_asc.push_back(walk->second == 1);
+        }
+    }
+    
+    bool operator () (std::shared_ptr<CLowlaDBBsonImpl> const &a, std::shared_ptr<CLowlaDBBsonImpl> const &b) const {
+        bson_iterator itA[1];
+        bson_iterator itB[1];
+        
+        bson_iterator_init(itA, a.get());
+        bson_iterator_init(itB, b.get());
+        
+        int idx = 0;
+        int type = bson_iterator_next(itA);
+        while (BSON_EOO != type) {
+            int typeB = bson_iterator_next(itB);
+            assert(BSON_EOO != typeB);
+            int compare = compareBsonFields(itA, itB);
+            if (0 != compare) {
+                return (m_asc[idx] && compare < 0) || (!m_asc[idx] && 0 < compare);
+            }
+            ++idx;
+            type = bson_iterator_next(itA);
+        }
+        return false;
+    }
+    
+private:
+    std::vector<bool> m_asc;
+};
+
+void CLowlaDBCursorImpl::performSortedQuery() {
+    parseSortSpec();
+    
+    MyLess comp(m_parsedSort);
+    std::multimap<std::shared_ptr<CLowlaDBBsonImpl>, i64, MyLess> sortData(comp);
+    
+    int rc, res;
+    rc = m_cursor->first(&res);
+    while (SQLITE_OK == rc && 0 == res) {
+        u32 size;
+        m_cursor->dataSize(&size);
+        char *data = (char *)bson_malloc(size);
+        m_cursor->data(0, size, data);
+        CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::OWN);
+        
+        if (nullptr == m_query || matches(&found)) {
+            i64 id;
+            m_cursor->keySize(&id);
+            std::shared_ptr<CLowlaDBBsonImpl> key = createSortKey(&found);
+            sortData.emplace(key, id);
+        }
+        rc = m_cursor->next(&res);
+    }
+    m_sortedIds.reserve(0 == m_limit ? sortData.size() - m_skip : m_limit);
+    auto walk = sortData.begin();
+    std::advance(walk, m_skip);
+    if (0 == m_limit) {
+        for ( ; walk != sortData.end(); ++walk) {
+            m_sortedIds.push_back(walk->second);
+        }
+    }
+    else {
+        for (int limit = 0; walk != sortData.end() && limit < m_limit; ++walk, ++limit) {
+            m_sortedIds.push_back(walk->second);
+        }
+    }
+    m_walkSorted = m_sortedIds.begin();
+}
+
+void CLowlaDBCursorImpl::parseSortSpec()
+{
+    bson_iterator it[1];
+    bson_iterator_init(it, m_sort.get());
+    bson_type walk = bson_iterator_next(it);
+    while (BSON_EOO != walk) {
+        int sortOrder = bson_iterator_int(it);
+        if (1 != sortOrder && -1 != sortOrder) {
+            throw TeamstudioException("Invalid sort specification: values must be +/- 1");
+        }
+        std::vector<utf16string> keys;
+        utf16string key(bson_iterator_key(it));
+        int startPos = 0;
+        int dotPos = key.indexOf('.');
+        while (-1 != dotPos) {
+            keys.push_back(key.substring(startPos, dotPos));
+            startPos = dotPos + 1;
+            dotPos = startPos < key.length() ? key.indexOf('.', startPos) : -1;
+        }
+        if (startPos < key.length()) {
+            keys.push_back(key.substring(startPos));
+        }
+        m_parsedSort.push_back(std::make_pair(keys, sortOrder));
+        
+        walk = bson_iterator_next(it);
+    }
+}
+
+static bson_type locateDottedField(bson_iterator *it, CLowlaDBBsonImpl *doc, std::vector<utf16string> const &keys)
+{
+    bson_type answer = BSON_EOO;
+    bson_iterator_init(it, doc);
+    for (int i = 0 ; i < keys.size() - 1 ; ++i) {
+        const char *keystr = keys[i].c_str();
+        answer = bson_iterator_next(it);
+        while (BSON_EOO != answer) {
+            if (BSON_OBJECT == answer && 0 == strcmp(keystr, bson_iterator_key(it))) {
+                bson_iterator_subiterator(it, it);
+                break;
+            }
+            answer = bson_iterator_next(it);
+        }
+        if (BSON_EOO == answer) {
+            return answer;
+        }
+    }
+    const char *keystr = keys.back().c_str();
+    answer = bson_iterator_next(it);
+    while (BSON_EOO != answer) {
+        if (0 == strcmp(keystr, bson_iterator_key(it))) {
+            break;
+        }
+        answer = bson_iterator_next(it);
+    }
+    return answer;
+}
+
+std::shared_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::createSortKey(CLowlaDBBsonImpl *found) {
+    
+    std::shared_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl);
+    
+    for (auto walk = m_parsedSort.begin() ; walk != m_parsedSort.end() ; ++walk) {
+        bson_iterator it[1];
+        bson_type type = locateDottedField(it, found, walk->first);
+        if (BSON_EOO == type) {
+            bson_append_null(answer.get(), "");
+        }
+        else if (BSON_ARRAY != type) {
+            bson_append_element(answer.get(), "", it);
+        }
+        else {
+            throw TeamstudioException("Internal error: array values not implemented for sort");
+        }
+    }
+    answer->finish();
+    return answer;
 }
 
 SqliteCursor::ptr CLowlaDBCursorImpl::sqliteCursor() {

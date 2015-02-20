@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <time.h>
+#include <stdint.h>
 #include <limits.h>
 
 #include "bson.h"

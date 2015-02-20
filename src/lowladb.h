@@ -134,6 +134,8 @@ public:
     static CLowlaDBCursor::ptr create(CLowlaDBCollection::ptr coll, const char *query);
     CLowlaDBCursor::ptr limit(int limit);
     CLowlaDBCursor::ptr skip(int skip);
+    CLowlaDBCursor::ptr sort(const char *sort);
+    
     CLowlaDBBson::ptr next();
     int64_t count();
     

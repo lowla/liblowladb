@@ -242,6 +242,365 @@ TEST_F(CountTestFixture, test_cursor_count_skip_limit) {
     EXPECT_EQ(1, cursor->count());
 }
 
+TEST_F(DbTestFixture, test_cursor_sort_int_ascending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_int_descending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", -1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_string_ascending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendString("a", "beta");
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendString("a", "alpha");
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    EXPECT_EQ("alpha", doc->stringForKey("a"));
+    doc = cursor->next();
+    EXPECT_EQ("beta", doc->stringForKey("a"));
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_numbers_ascending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendDouble("a", 1.5);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendLong("a", 1L);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int iVal;
+    int64_t lVal;
+    double dVal;
+    EXPECT_TRUE(doc->longForKey("a", &lVal));
+    EXPECT_EQ(1, lVal);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->doubleForKey("a", &dVal));
+    EXPECT_EQ(1.5, dVal);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &iVal));
+    EXPECT_EQ(2, iVal);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_int_before_string) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendString("a", "beta");
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    doc = cursor->next();
+    EXPECT_EQ("beta", doc->stringForKey("a"));
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_missing_before_int) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendString("b", "beta");
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    EXPECT_EQ("beta", doc->stringForKey("b"));
+    doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_int_ascending_ascending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 30);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 20);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(20, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(30, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_int_ascending_descending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 20);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 30);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", -1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(30, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(20, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_int_descending_ascending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 20);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 30);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", -1);
+    bson->appendInt("b", 1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(20, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(30, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_int_descending_descending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 20);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 30);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", -1);
+    bson->appendInt("b", -1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(30, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(20, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_cursor_sort_skip_limit) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 20);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 30);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", -1);
+    bson->appendInt("b", -1);
+    bson->finish();
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->sort(bson->data());
+    cursor = cursor->skip(1)->limit(1);
+    
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(20, val);
+    EXPECT_FALSE(cursor->next());
+}
+
 TEST_F(DbTestFixture, test_parse_syncer_response) {
     CLowlaDBBson::ptr syncResponse = CLowlaDBBson::create();
     
