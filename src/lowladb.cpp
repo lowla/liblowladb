@@ -1,3 +1,4 @@
+#include "algorithm"
 #include "cstdio"
 #include "set"
 
@@ -1591,7 +1592,7 @@ void CLowlaDBCursorImpl::performSortedQuery() {
             i64 id;
             m_cursor->keySize(&id);
             std::shared_ptr<CLowlaDBBsonImpl> key = createSortKey(&found);
-            sortData.emplace(key, id);
+            sortData.insert(std::pair<std::shared_ptr<CLowlaDBBsonImpl>, i64>(key, id));
         }
         rc = m_cursor->next(&res);
     }
