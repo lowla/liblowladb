@@ -78,9 +78,8 @@ public:
     static CLowlaDBWriteResult::ptr create(std::unique_ptr<CLowlaDBWriteResultImpl> &pimpl);
     CLowlaDBWriteResultImpl *pimpl();
 
-    bool isUpdateOfExisting();
-    bool getUpsertedId(char *buffer);
-    int getN();
+    int documentCount();
+    CLowlaDBBson::ptr document(int n);
     
 private:
     std::unique_ptr<CLowlaDBWriteResultImpl> m_pimpl;

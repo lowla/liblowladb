@@ -8,6 +8,7 @@
 
 #include "gtest.h"
 
+#include "TeamstudioException.h"
 #include "lowladb.h"
 
 class DbTestFixture : public ::testing::Test {
@@ -51,7 +52,8 @@ TEST_F(DbTestFixture, test_can_create_single_string_documents) {
     bson->finish();
     CLowlaDBWriteResult::ptr wr = coll->insert(bson->data());
     char buffer[CLowlaDBBson::OID_SIZE];
-    EXPECT_TRUE(wr->getUpsertedId(buffer));
+    EXPECT_EQ(1, wr->documentCount());
+    EXPECT_TRUE(wr->document(0)->oidForKey("_id", buffer));
 }
 
 TEST_F(DbTestFixture, test_create_new_id_for_each_document) {
@@ -62,8 +64,11 @@ TEST_F(DbTestFixture, test_create_new_id_for_each_document) {
     CLowlaDBWriteResult::ptr wr2 = coll->insert(bson->data());
     char buf1[CLowlaDBBson::OID_SIZE];
     char buf2[CLowlaDBBson::OID_SIZE];
-    EXPECT_TRUE(wr1->getUpsertedId(buf1));
-    EXPECT_TRUE(wr2->getUpsertedId(buf2));
+    EXPECT_EQ(1, wr1->documentCount());
+    EXPECT_TRUE(wr1->document(0)->oidForKey("_id", buf1));
+    EXPECT_EQ(1, wr2->documentCount());
+    EXPECT_TRUE(wr2->document(0)->oidForKey("_id", buf2));
+
     EXPECT_NE(0, memcmp(buf1, buf2, CLowlaDBBson::OID_SIZE));
 }
 
@@ -89,6 +94,43 @@ TEST_F(DbTestFixture, test_insert_multiple_documents_with_success) {
     EXPECT_NE(0, memcmp(buf1, buf2, CLowlaDBBson::OID_SIZE));
 }
 
+TEST_F(DbTestFixture, test_cannot_insert_dollar_field) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendString("$myfield", "mystring");
+    bson->finish();
+    try {
+        CLowlaDBWriteResult::ptr wr1 = coll->insert(bson->data());
+        FAIL();
+    }
+    catch (TeamstudioException &e) {
+        EXPECT_TRUE(nullptr != strstr(e.what(), "$myfield"));
+    }
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_EQ(0, cursor->count());
+}
+
+TEST_F(DbTestFixture, test_cannot_insert_dollar_field_via_array) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendString("myfield", "mystring");
+    bson->finish();
+    CLowlaDBBson::ptr bsonBad = CLowlaDBBson::create();
+    bsonBad->appendString("$myfield", "mystring");
+    bsonBad->finish();
+    std::vector<const char *> arr;
+    arr.push_back(bson->data());
+    arr.push_back(bsonBad->data());
+    try {
+        CLowlaDBWriteResult::ptr wr = coll->insert(arr);
+        FAIL();
+    }
+    catch (TeamstudioException &e) {
+        EXPECT_TRUE(nullptr != strstr(e.what(), "$myfield"));
+    }
+    // We don't insert any records even if only one of them is bad
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_EQ(0, cursor->count());
+}
+
 TEST_F(DbTestFixture, test_update_replace_single_doc) {
     CLowlaDBBson::ptr bson = CLowlaDBBson::create();
     bson->appendString("myfield", "mystring");
@@ -96,7 +138,8 @@ TEST_F(DbTestFixture, test_update_replace_single_doc) {
     CLowlaDBWriteResult::ptr wr1 = coll->insert(bson->data());
     coll->insert(bson->data());
     char buf1[CLowlaDBBson::OID_SIZE];
-    EXPECT_TRUE(wr1->getUpsertedId(buf1));
+    EXPECT_EQ(1, wr1->documentCount());
+    EXPECT_TRUE(wr1->document(0)->oidForKey("_id", buf1));
     
     CLowlaDBBson::ptr query = CLowlaDBBson::create();
     query->appendOid("_id", buf1);
@@ -106,8 +149,6 @@ TEST_F(DbTestFixture, test_update_replace_single_doc) {
     update->finish();
     
     CLowlaDBWriteResult::ptr wrUpdate = coll->update(query->data(), update->data(), false, true);
-    EXPECT_EQ(1, wrUpdate->getN());
-    EXPECT_TRUE(wrUpdate->isUpdateOfExisting());
     
     // Make sure we updated the document correctly, replacing existing fields and not changing _id
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
@@ -136,8 +177,9 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     bson->finish();
     CLowlaDBWriteResult::ptr wr1 = coll->insert(bson->data());
     coll->insert(bson->data());
+    EXPECT_EQ(1, wr1->documentCount());
     char buf1[CLowlaDBBson::OID_SIZE];
-    EXPECT_TRUE(wr1->getUpsertedId(buf1));
+    EXPECT_TRUE(wr1->document(0)->oidForKey("_id", buf1));
     
     CLowlaDBBson::ptr query = CLowlaDBBson::create();
     query->appendOid("_id", buf1);
@@ -151,8 +193,6 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     update->finish();
     
     CLowlaDBWriteResult::ptr wrUpdate = coll->update(query->data(), update->data(), false, true);
-    EXPECT_EQ(1, wrUpdate->getN());
-    EXPECT_TRUE(wrUpdate->isUpdateOfExisting());
     
     // Make sure we updated the document correctly, replacing existing fields and not changing _id
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);

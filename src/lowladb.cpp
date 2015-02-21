@@ -119,18 +119,13 @@ private:
 class CLowlaDBWriteResultImpl {
 public:
     CLowlaDBWriteResultImpl();
+    int getDocumentCount();
+    const char *getDocument(int n);
     
-    bool isUpdateOfExisting();
-    void setUpdateOfExisting(bool updateOfExisting);
-    bson_oid_t getUpsertedId();
-    void setUpsertedId(bson_oid_t *oid);
-    int getN();
-    void setN(int n);
-
+    void appendDocument(std::unique_ptr<CLowlaDBBsonImpl> doc);
+    
 private:
-    bool m_updateOfExisting;
-    bson_oid_t m_upsertedId;
-    int m_n;
+    std::vector<std::unique_ptr<CLowlaDBBsonImpl>> m_docs;
 };
 
 class CLowlaDBBsonImpl : public bson {
@@ -588,7 +583,22 @@ static utf16string generateLowlaId(CLowlaDBCollectionImpl *coll, CLowlaDBBsonImp
 CLowlaDBCollectionImpl::CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot) : m_db(db), m_name(name), m_root(root), m_logRoot(logRoot) {
 }
 
+static void throwIfDocumentInvalidForInsertion(CLowlaDBBsonImpl const *obj) {
+    bson_iterator it[1];
+    bson_iterator_init(it, obj);
+    while (BSON_EOO != bson_iterator_next(it)) {
+        if ('$' == bson_iterator_key(it)[0]) {
+            utf16string msg("The dollar ($) prefixed field ");
+            msg += bson_iterator_key(it);
+            msg += " is not valid";
+            throw TeamstudioException(msg);
+        }
+    }
+}
+
 std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDBBsonImpl *obj, const utf16string &lowlaId) {
+    
+    throwIfDocumentInvalidForInsertion(obj);
     if (!obj->containsKey("_id")) {
         CLowlaDBBsonImpl fixed[1];
         bson_oid_t newOid;
@@ -597,12 +607,10 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDB
         fixed->appendAll(obj);
         fixed->finish();
         std::unique_ptr<CLowlaDBWriteResultImpl> answer = insert(fixed, lowlaId);
-        answer->setUpsertedId(&newOid);
         return answer;
     }
     
     std::unique_ptr<CLowlaDBWriteResultImpl> answer(new CLowlaDBWriteResultImpl);
-    answer->setUpdateOfExisting(false);
     
     Tx tx(m_db->btree());
     
@@ -630,6 +638,14 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDB
         static char logData[] = {0, 0, 0, 0, LOGTYPE_INSERT};
         rc = logCursor->insert(NULL, newId, logData, sizeof(logData), 0, true, 0);
     }
+    if (obj->ownsData) {
+        obj->ownsData = false;
+        answer->appendDocument(std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl(obj->data(), CLowlaDBBsonImpl::OWN)));
+    }
+    else {
+        answer->appendDocument(std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl(obj->data(), CLowlaDBBsonImpl::REF)));
+    }
+    
     rc = cursor->close();
     tx.commit();
     
@@ -638,8 +654,11 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDB
 
 std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vector<CLowlaDBBsonImpl> &arr) {
 
+    // To match JS client behavior, we check first and throw if any document has invalid field names
+    for (CLowlaDBBsonImpl const &doc : arr) {
+        throwIfDocumentInvalidForInsertion(&doc);
+    }
     std::unique_ptr<CLowlaDBWriteResultImpl> answer(new CLowlaDBWriteResultImpl);
-    answer->setUpdateOfExisting(false);
     
     Tx tx(m_db->btree());
     SqliteCursor::ptr cursor = m_db->openCursor(m_root);
@@ -673,6 +692,13 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vec
             cursor->putData((int)obj->size(), (int)meta.size(), meta.data());
             static char logData[] = {0, 0, 0, 0, LOGTYPE_INSERT};
             rc = logCursor->insert(NULL, newId, logData, sizeof(logData), 0, true, 0);
+        }
+        if (obj->ownsData) {
+            obj->ownsData = false;
+            answer->appendDocument(std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl(obj->data(), CLowlaDBBsonImpl::OWN)));
+        }
+        else {
+            answer->appendDocument(std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl(obj->data(), CLowlaDBBsonImpl::REF)));
         }
     }
     
@@ -722,8 +748,6 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::update(CLowlaDB
     cursor.reset();
     tx.commit();
     std::unique_ptr<CLowlaDBWriteResultImpl> wr(new CLowlaDBWriteResultImpl);
-    wr->setUpdateOfExisting(true);
-    wr->setN(count);
     return wr;
 }
 
@@ -900,49 +924,30 @@ CLowlaDBWriteResult::ptr CLowlaDBWriteResult::create(std::unique_ptr<CLowlaDBWri
     return CLowlaDBWriteResult::ptr(new CLowlaDBWriteResult(pimpl));
 }
 
-bool CLowlaDBWriteResult::getUpsertedId(char *buffer) {
-    bson_oid_t answer = m_pimpl->getUpsertedId();
-    memcpy(buffer, &answer, CLowlaDBBson::OID_SIZE);
-    return 0 != answer.ints[0] || 0 != answer.ints[1] || 0 != answer.ints[2];
+int CLowlaDBWriteResult::documentCount() {
+    return m_pimpl->getDocumentCount();
 }
 
-bool CLowlaDBWriteResult::isUpdateOfExisting() {
-    return m_pimpl->isUpdateOfExisting();
-}
-
-int CLowlaDBWriteResult::getN() {
-    return m_pimpl->getN();
+CLowlaDBBson::ptr CLowlaDBWriteResult::document(int n) {
+    return CLowlaDBBson::create(m_pimpl->getDocument(n), false);
 }
 
 CLowlaDBWriteResult::CLowlaDBWriteResult(std::unique_ptr<CLowlaDBWriteResultImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
 }
 
-CLowlaDBWriteResultImpl::CLowlaDBWriteResultImpl() : m_updateOfExisting(false), m_n(1) {
-    memset(&m_upsertedId, 0, sizeof(m_upsertedId));
+CLowlaDBWriteResultImpl::CLowlaDBWriteResultImpl() {
 }
 
-bool CLowlaDBWriteResultImpl::isUpdateOfExisting() {
-    return m_updateOfExisting;
+int CLowlaDBWriteResultImpl::getDocumentCount() {
+    return (int)m_docs.size();
 }
 
-void CLowlaDBWriteResultImpl::setUpdateOfExisting(bool updateOfExisting) {
-    m_updateOfExisting = updateOfExisting;
+const char *CLowlaDBWriteResultImpl::getDocument(int n) {
+    return m_docs[n]->data();
 }
 
-bson_oid_t CLowlaDBWriteResultImpl::getUpsertedId() {
-    return m_upsertedId;
-}
-
-void CLowlaDBWriteResultImpl::setUpsertedId(bson_oid_t *oid) {
-    m_upsertedId = *oid;
-}
-
-int CLowlaDBWriteResultImpl::getN() {
-    return m_n;
-}
-
-void CLowlaDBWriteResultImpl::setN(int n) {
-    m_n = n;
+void CLowlaDBWriteResultImpl::appendDocument(std::unique_ptr<CLowlaDBBsonImpl> doc) {
+    m_docs.push_back(std::move(doc));
 }
 
 const size_t CLowlaDBBson::OID_SIZE = sizeof(bson_oid_t);
