@@ -641,6 +641,49 @@ TEST_F(DbTestFixture, test_cursor_sort_skip_limit) {
     EXPECT_FALSE(cursor->next());
 }
 
+TEST_F(DbTestFixture, test_cursor_unsorted_skip_limit) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 20);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 30);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->skip(1)->limit(1);
+    
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(2, val);
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(20, val);
+    EXPECT_FALSE(cursor->next());
+    
+    cursor = CLowlaDBCursor::create(coll, nullptr)->skip(1);
+    doc = cursor->next();
+    EXPECT_TRUE(!!cursor->next());
+    EXPECT_FALSE(cursor->next());
+    
+    cursor = CLowlaDBCursor::create(coll, nullptr)->skip(3);
+    doc = cursor->next();
+    EXPECT_FALSE(doc);
+    
+    cursor = CLowlaDBCursor::create(coll, nullptr)->limit(2);
+    EXPECT_TRUE(!!cursor->next());
+    EXPECT_TRUE(!!cursor->next());
+    EXPECT_FALSE(cursor->next());
+}
+
 TEST_F(DbTestFixture, test_parse_syncer_response) {
     CLowlaDBBson::ptr syncResponse = CLowlaDBBson::create();
     

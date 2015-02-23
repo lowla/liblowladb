@@ -264,6 +264,7 @@ private:
     std::shared_ptr<CLowlaDBBsonImpl> m_sort;
     std::vector<std::pair<std::vector<utf16string>, int>> m_parsedSort;
     
+    int m_unsortedOffset;
     std::vector<int64_t> m_sortedIds;
     std::vector<int64_t>::iterator m_walkSorted;
     
@@ -1408,9 +1409,13 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
     if (!m_tx) {
         m_tx.reset(new Tx(m_coll->db()->btree()));
         m_cursor = m_coll->openCursor();
+        m_unsortedOffset = 0;
         rc = m_cursor->first(&res);
     }
     else {
+        if (0 != m_limit && m_skip + m_limit < m_unsortedOffset) {
+            rc = m_cursor->last(&res);
+        }
         rc = m_cursor->next(&res);
     }
     while (SQLITE_OK == res && 0 == rc) {
@@ -1420,10 +1425,13 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
         m_cursor->data(0, size, data);
         CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::REF);
         if (nullptr == m_query || matches(&found)) {
-            i64 id;
-            m_cursor->keySize(&id);
-            std::unique_ptr<CLowlaDBBsonImpl> answer = project(&found, id);
-            return answer;
+            ++m_unsortedOffset;
+            if (m_skip < m_unsortedOffset && (0 == m_limit || m_unsortedOffset <= m_skip + m_limit)) {
+                i64 id;
+                m_cursor->keySize(&id);
+                std::unique_ptr<CLowlaDBBsonImpl> answer = project(&found, id);
+                return answer;
+            }
         }
         bson_free(data);
         rc = m_cursor->next(&res);
