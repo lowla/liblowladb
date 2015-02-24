@@ -216,6 +216,97 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     EXPECT_FALSE(check);
 }
 
+TEST_F(DbTestFixture, test_collection_can_remove_a_document)
+{
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 3);
+    bson->finish();
+    coll->insert(bson->data());
+
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->finish();
+    
+    CLowlaDBWriteResult::ptr wr = coll->remove(bson->data());
+    EXPECT_EQ(1, wr->documentCount());
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(3, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_collection_can_remove_zero_documents)
+{
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("b", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("c", 3);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("d", 4);
+    bson->finish();
+    
+    CLowlaDBWriteResult::ptr wr = coll->remove(bson->data());
+    EXPECT_EQ(0, wr->documentCount());
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    CLowlaDBBson::ptr doc = cursor->next();
+    int val;
+    EXPECT_TRUE(doc->intForKey("a", &val));
+    EXPECT_EQ(1, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("b", &val));
+    EXPECT_EQ(2, val);
+    doc = cursor->next();
+    EXPECT_TRUE(doc->intForKey("c", &val));
+    EXPECT_EQ(3, val);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_collection_can_remove_all_documents)
+{
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("b", 2);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("c", 3);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    CLowlaDBWriteResult::ptr wr = coll->remove(nullptr);
+    EXPECT_EQ(3, wr->documentCount());
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_FALSE(cursor->next());
+}
+
 class CountTestFixture : public DbTestFixture {
 public:
     CountTestFixture();

@@ -124,8 +124,10 @@ public:
     const char *getDocument(int n);
     
     void appendDocument(std::unique_ptr<CLowlaDBBsonImpl> doc);
+    void setDocumentCount(int count);
     
 private:
+    int m_count;
     std::vector<std::unique_ptr<CLowlaDBBsonImpl>> m_docs;
 };
 
@@ -181,6 +183,7 @@ public:
     CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot);
     std::unique_ptr<CLowlaDBWriteResultImpl> insert(CLowlaDBBsonImpl *obj, const utf16string &lowlaId);
     std::unique_ptr<CLowlaDBWriteResultImpl> insert(std::vector<CLowlaDBBsonImpl> &arr);
+    std::unique_ptr<CLowlaDBWriteResultImpl> remove(CLowlaDBBsonImpl *query);
     std::unique_ptr<CLowlaDBWriteResultImpl> save(CLowlaDBBsonImpl *obj);
     std::unique_ptr<CLowlaDBWriteResultImpl> update(CLowlaDBBsonImpl *query, CLowlaDBBsonImpl *object, bool upsert, bool multi);
     
@@ -565,6 +568,18 @@ CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const std::vector<const char
     return CLowlaDBWriteResult::create(pimpl);
 }
 
+CLowlaDBWriteResult::ptr CLowlaDBCollection::remove(const char *queryBson) {
+    if (queryBson) {
+        CLowlaDBBsonImpl query(queryBson, CLowlaDBBsonImpl::REF);
+        std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->remove(&query);
+        return CLowlaDBWriteResult::create(pimpl);
+    }
+    else {
+        std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->remove(nullptr);
+        return CLowlaDBWriteResult::create(pimpl);
+    }
+}
+
 CLowlaDBWriteResult::ptr CLowlaDBCollection::save(const char *bsonData) {
     CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
     std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->save(&bson);
@@ -711,6 +726,44 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vec
     return answer;
 }
 
+std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::remove(CLowlaDBBsonImpl *query) {
+    Tx tx(m_db->btree());
+    
+    // The cursor needs a shared_ptr so we create a new ClowlaDBBsonImpl using the incoming data
+    std::shared_ptr<CLowlaDBBsonImpl> cursorQuery;
+    if (query) {
+        cursorQuery.reset(new CLowlaDBBsonImpl(query->data(), CLowlaDBBsonImpl::REF));
+    }
+    std::unique_ptr<CLowlaDBCursorImpl> cursor(new CLowlaDBCursorImpl(this, cursorQuery, nullptr));
+
+    std::vector<int64_t> idsToDelete;
+    
+    // We can't delete the documents while we iterate the cursor, so we create the log documents in
+    // a first pass and then go back and delete the documents.
+    std::unique_ptr<CLowlaDBBsonImpl> found = cursor->next();
+    while (found) {
+        int64_t id = cursor->currentId();
+        updateDocument(cursor->sqliteCursor().get(), id, nullptr, found.get(), cursor->currentMeta().get());
+        idsToDelete.push_back(id);
+        found = cursor->next();
+    }
+
+    // Now go through and delete the documents.
+    for (int64_t id : idsToDelete) {
+        int rc, res;
+        rc = cursor->sqliteCursor()->movetoUnpacked(nullptr, id, 0, &res);
+        if (SQLITE_OK == rc && 0 == res) {
+            cursor->sqliteCursor()->deleteCurrent();
+        }
+    }
+
+    cursor.reset();
+    tx.commit();
+    std::unique_ptr<CLowlaDBWriteResultImpl> wr(new CLowlaDBWriteResultImpl);
+    wr->setDocumentCount((int)idsToDelete.size());
+    return wr;
+}
+
 std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::save(CLowlaDBBsonImpl *obj) {
     if (obj->containsKey("_id)")) {
         CLowlaDBBsonImpl query;
@@ -738,9 +791,7 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::update(CLowlaDB
     if (!found && upsert) {
         return insert(object, "");
     }
-    int count = 0;
     while (found) {
-        ++count;
         int64_t id = cursor->currentId();
         std::unique_ptr<CLowlaDBBsonImpl> bsonToWrite = applyUpdate(object, found.get());
         updateDocument(cursor->sqliteCursor().get(), id, bsonToWrite.get(), found.get(), cursor->currentMeta().get());
@@ -813,16 +864,21 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCollectionImpl::applyUpdate(CLowlaDBBs
 }
 
 void CLowlaDBCollectionImpl::updateDocument(SqliteCursor *cursor, int64_t id, CLowlaDBBsonImpl *obj, CLowlaDBBsonImpl *oldObj, CLowlaDBBsonImpl *oldMeta) {
-    int rc = cursor->insert(NULL, id, obj->data(), (int)obj->size(), (int)oldMeta->size(), false, 0);
-    if (SQLITE_OK == rc) {
-        rc = cursor->putData((int)obj->size(), (int)oldMeta->size(), oldMeta->data());
+    int rc, res;
+    if (obj) {
+        rc = cursor->insert(NULL, id, obj->data(), (int)obj->size(), (int)oldMeta->size(), false, 0);
+        if (SQLITE_OK == rc) {
+            rc = cursor->putData((int)obj->size(), (int)oldMeta->size(), oldMeta->data());
+        }
     }
     if (SQLITE_OK == rc) {
         SqliteCursor::ptr logCursor = m_db->openCursor(m_logRoot);
-        int res;
         rc = logCursor->movetoUnpacked(nullptr, id, 0, &res);
         if (SQLITE_OK == rc && 0 != res) {
-            logCursor->insert(nullptr, id, oldObj->data(), (int)oldObj->size(), 0, false, res);
+            logCursor->insert(nullptr, id, oldObj->data(), (int)oldObj->size(), (int)oldMeta->size(), false, res);
+            if (SQLITE_OK == rc) {
+                rc = logCursor->putData((int)oldObj->size(), (int)oldMeta->size(), oldMeta->data());
+            }
         }
     }
 }
@@ -937,11 +993,14 @@ CLowlaDBBson::ptr CLowlaDBWriteResult::document(int n) {
 CLowlaDBWriteResult::CLowlaDBWriteResult(std::unique_ptr<CLowlaDBWriteResultImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
 }
 
-CLowlaDBWriteResultImpl::CLowlaDBWriteResultImpl() {
+CLowlaDBWriteResultImpl::CLowlaDBWriteResultImpl() : m_count(0) {
 }
 
 int CLowlaDBWriteResultImpl::getDocumentCount() {
-    return (int)m_docs.size();
+    if (0 == m_count) {
+        return (int)m_docs.size();
+    }
+    return m_count;
 }
 
 const char *CLowlaDBWriteResultImpl::getDocument(int n) {
@@ -950,6 +1009,10 @@ const char *CLowlaDBWriteResultImpl::getDocument(int n) {
 
 void CLowlaDBWriteResultImpl::appendDocument(std::unique_ptr<CLowlaDBBsonImpl> doc) {
     m_docs.push_back(std::move(doc));
+}
+
+void CLowlaDBWriteResultImpl::setDocumentCount(int count) {
+    m_count = count;
 }
 
 const size_t CLowlaDBBson::OID_SIZE = sizeof(bson_oid_t);

@@ -96,6 +96,7 @@ public:
     
     CLowlaDBWriteResult::ptr insert(const char *bsonData);
     CLowlaDBWriteResult::ptr insert(const std::vector<const char *> &bsonData);
+    CLowlaDBWriteResult::ptr remove(const char *queryBson);
     CLowlaDBWriteResult::ptr save(const char *bsonData);
     CLowlaDBWriteResult::ptr update(const char *queryBson, const char *objectBson, bool upsert, bool multi);
     
