@@ -102,7 +102,7 @@ TEST_F(DbTestFixture, test_cannot_insert_dollar_field) {
         CLowlaDBWriteResult::ptr wr1 = coll->insert(bson->data());
         FAIL();
     }
-    catch (TeamstudioException &e) {
+    catch (TeamstudioException const &e) {
         EXPECT_TRUE(nullptr != strstr(e.what(), "$myfield"));
     }
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
@@ -174,6 +174,7 @@ TEST_F(DbTestFixture, test_update_replace_single_doc) {
 TEST_F(DbTestFixture, test_update_set_single_doc) {
     CLowlaDBBson::ptr bson = CLowlaDBBson::create();
     bson->appendString("myfield", "mystring");
+    bson->appendString("myfield3", "mystring3");
     bson->finish();
     CLowlaDBWriteResult::ptr wr1 = coll->insert(bson->data());
     coll->insert(bson->data());
@@ -201,6 +202,8 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     EXPECT_EQ("mystringMod", check->stringForKey("myfield"));
     EXPECT_TRUE(check->containsKey("myfield2"));
     EXPECT_EQ("mystring2", check->stringForKey("myfield2"));
+    EXPECT_TRUE(check->containsKey("myfield3"));
+    EXPECT_EQ("mystring3", check->stringForKey("myfield3"));
     char bufCheck[CLowlaDBBson::OID_SIZE];
     EXPECT_TRUE(check->oidForKey("_id", bufCheck));
     EXPECT_TRUE(0 == memcmp(bufCheck, buf1, CLowlaDBBson::OID_SIZE));
@@ -214,6 +217,81 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     // Make sure we didn't create any unexpected documents
     check = cursor->next();
     EXPECT_FALSE(check);
+}
+
+TEST_F(DbTestFixture, test_collection_cant_update_dollar_field)
+{
+    CLowlaDBBson::ptr update = CLowlaDBBson::create();
+    update->appendInt("$badfield", 2);
+    update->finish();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::empty();
+    
+    try {
+        coll->update(query->data(), update->data(), false, true);
+    }
+    catch (TeamstudioException const &e) {
+        EXPECT_TRUE(nullptr != strstr(e.what(), "$badfield"));
+    }
+}
+
+TEST_F(DbTestFixture, test_collection_cant_update_dollar_field_via_set)
+{
+    CLowlaDBBson::ptr update = CLowlaDBBson::create();
+    CLowlaDBBson::ptr updateSet = CLowlaDBBson::create();
+    updateSet->appendInt("$badfield", 2);
+    updateSet->finish();
+    update->appendObject("$set", updateSet->data());
+    update->finish();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::empty();
+    
+    try {
+        coll->update(query->data(), update->data(), false, true);
+    }
+    catch (TeamstudioException const &e) {
+        EXPECT_TRUE(nullptr != strstr(e.what(), "$badfield"));
+    }
+}
+
+TEST_F(DbTestFixture, test_collection_cant_mix_dollar_first)
+{
+    CLowlaDBBson::ptr update = CLowlaDBBson::create();
+    CLowlaDBBson::ptr updateSet = CLowlaDBBson::create();
+    updateSet->appendInt("sub", 2);
+    updateSet->finish();
+    update->appendObject("$set", updateSet->data());
+    update->appendString("notDollar", "mystring");
+    update->finish();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::empty();
+    
+    try {
+        coll->update(query->data(), update->data(), false, true);
+    }
+    catch (TeamstudioException const &e) {
+        EXPECT_TRUE(nullptr != strstr(e.what(), "Can not mix"));
+    }
+}
+
+TEST_F(DbTestFixture, test_collection_cant_mix_dollar_second)
+{
+    CLowlaDBBson::ptr update = CLowlaDBBson::create();
+    update->appendString("notDollar", "mystring");
+    CLowlaDBBson::ptr updateSet = CLowlaDBBson::create();
+    updateSet->appendInt("sub", 2);
+    updateSet->finish();
+    update->appendObject("$set", updateSet->data());
+    update->finish();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::empty();
+    
+    try {
+        coll->update(query->data(), update->data(), false, true);
+    }
+    catch (TeamstudioException const &e) {
+        EXPECT_TRUE(nullptr != strstr(e.what(), "Can not mix"));
+    }
 }
 
 TEST_F(DbTestFixture, test_collection_can_remove_a_document)
@@ -895,6 +973,22 @@ TEST(BsonToJson, testBool) {
     EXPECT_EQ("{\n   \"myfalse\" : false,\n   \"mytrue\" : true\n}\n", lowladb_bson_to_json(value->data()));
 }
 
+TEST(BsonToJson, testObjectId) {
+    CLowlaDBBson::ptr value = CLowlaDBBson::create();
+    char oid[CLowlaDBBson::OID_SIZE];
+    CLowlaDBBson::oidGenerate(oid);
+    value->appendOid("_id", oid);
+    value->finish();
+    
+    char buf[CLowlaDBBson::OID_STRING_SIZE];
+    CLowlaDBBson::oidToString(oid, buf);
+    
+    utf16string check("{\n   \"_id\" : {\n      \"_bsonType\" : \"ObjectId\",\n      \"hexString\" : \"%hex%\"\n   }\n}\n");
+    check = check.replace("%hex%", buf);
+    EXPECT_EQ(check, lowladb_bson_to_json(value->data()));
+    
+}
+
 TEST(JsonToBson, testString) {
     CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"mystring\" : \"myvalue\"}");
     EXPECT_EQ("myvalue", bson->stringForKey("mystring"));
@@ -935,4 +1029,13 @@ TEST(JsonToBson, testDate) {
     int64_t millis;
     EXPECT_TRUE(bson->dateForKey("mydate", &millis));
     EXPECT_EQ(1414782231657, millis);
+}
+
+TEST(JsonToBson, testObjectId) {
+    CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"_id\" : {\"_bsonType\" : \"ObjectId\", \"hexString\" : \"0123456789ABCDEF01234567\"}}");
+    char oid[CLowlaDBBson::OID_SIZE];
+    EXPECT_TRUE(bson->oidForKey("_id", oid));
+    char buf[CLowlaDBBson::OID_STRING_SIZE];
+    CLowlaDBBson::oidToString(oid, buf);
+    EXPECT_STREQ("0123456789abcdef01234567", buf);
 }

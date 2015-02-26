@@ -14,7 +14,6 @@
 
 class CLowlaDBBsonImpl;
 class CLowlaDBBsonIteratorImpl;
-class CLowlaDBBsonOidImpl;
 class CLowlaDBImpl;
 class CLowlaDBCollectionImpl;
 class CLowlaDBCursorImpl;
@@ -28,6 +27,7 @@ public:
     static CLowlaDBBson::ptr create();
     static CLowlaDBBson::ptr create(const char *bson, bool ownsData);
     static CLowlaDBBson::ptr create(std::unique_ptr<CLowlaDBBsonImpl> &pimpl);
+    static CLowlaDBBson::ptr empty();
     CLowlaDBBsonImpl *pimpl();
     
     void appendDouble(const utf16string &key, double value);
@@ -63,6 +63,7 @@ public:
     static const size_t OID_SIZE;
     static const size_t OID_STRING_SIZE;
     static void oidToString(const char *oid, char *buffer);
+    static void oidFromString(char *oid, const char *str);
     static void oidGenerate(char *buffer);
     
 private:

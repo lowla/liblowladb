@@ -143,6 +143,8 @@ public:
     CLowlaDBBsonImpl(const char *data, Mode ownsData);
     ~CLowlaDBBsonImpl();
     
+    static std::unique_ptr<CLowlaDBBsonImpl> empty();
+    
     bool containsKey(const utf16string &key);
     void appendDouble(const utf16string &key, double value);
     void appendString(const utf16string &key, const utf16string &value);
@@ -600,7 +602,7 @@ static utf16string generateLowlaId(CLowlaDBCollectionImpl *coll, CLowlaDBBsonImp
 CLowlaDBCollectionImpl::CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot) : m_db(db), m_name(name), m_root(root), m_logRoot(logRoot) {
 }
 
-static void throwIfDocumentInvalidForInsertion(CLowlaDBBsonImpl const *obj) {
+static void throwIfDocumentInvalidForInsertion(bson const *obj) {
     bson_iterator it[1];
     bson_iterator_init(it, obj);
     while (BSON_EOO != bson_iterator_next(it)) {
@@ -613,6 +615,42 @@ static void throwIfDocumentInvalidForInsertion(CLowlaDBBsonImpl const *obj) {
     }
 }
 
+static void throwIfDocumentInvalidForUpdate(bson const *obj) {
+    bson_iterator it[1];
+    bson_iterator_init(it, obj);
+    bool foundOp = false;
+    bool foundReplace = false;
+    
+    while (BSON_EOO != bson_iterator_next(it)) {
+        const char *key = bson_iterator_key(it);
+        if ('$' == key[0]) {
+            if (foundReplace) {
+                throw TeamstudioException("Can not mix operations and values in object updates");
+            }
+            foundOp = true;
+            
+            if (0 == strcmp("$set", key)) {
+                bson sub[1];
+                bson_iterator_subobject_init(it, sub, false);
+                throwIfDocumentInvalidForInsertion(sub);
+            }
+            else if (0 == strcmp("$unset", key)) {
+            }
+            else {
+                utf16string msg("The dollar ($) prefixed field ");
+                msg += key;
+                msg += " is not valid";
+                throw TeamstudioException(msg);
+            }
+        }
+        else {
+            if (foundOp) {
+                throw TeamstudioException("Can not mix operations and values in object updates");
+            }
+            foundReplace = true;
+        }
+    }
+}
 std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDBBsonImpl *obj, const utf16string &lowlaId) {
     
     throwIfDocumentInvalidForInsertion(obj);
@@ -778,6 +816,8 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::save(CLowlaDBBs
 
 std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::update(CLowlaDBBsonImpl *query, CLowlaDBBsonImpl *object, bool upsert, bool multi) {
 
+    throwIfDocumentInvalidForUpdate(object);
+    
     Tx tx(m_db->btree());
 
     // The cursor needs a shared_ptr so we create a new ClowlaDBBsonImpl using the incoming data
@@ -791,16 +831,17 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::update(CLowlaDB
     if (!found && upsert) {
         return insert(object, "");
     }
+    std::unique_ptr<CLowlaDBWriteResultImpl> wr(new CLowlaDBWriteResultImpl);
     while (found) {
         int64_t id = cursor->currentId();
         std::unique_ptr<CLowlaDBBsonImpl> bsonToWrite = applyUpdate(object, found.get());
         updateDocument(cursor->sqliteCursor().get(), id, bsonToWrite.get(), found.get(), cursor->currentMeta().get());
+        wr->appendDocument(std::move(bsonToWrite));
         
         found = cursor->next();
     }
     cursor.reset();
     tx.commit();
-    std::unique_ptr<CLowlaDBWriteResultImpl> wr(new CLowlaDBWriteResultImpl);
     return wr;
 }
 
@@ -825,17 +866,17 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCollectionImpl::applyUpdate(CLowlaDBBs
             set.reset(new CLowlaDBBsonImpl(tmp, CLowlaDBBsonImpl::REF));
         }
         else {
-            set.reset(new CLowlaDBBsonImpl);
+            set = CLowlaDBBsonImpl::empty();
         }
         if (update->objectForKey("$unset", &tmp)) {
             unset.reset(new CLowlaDBBsonImpl(tmp, CLowlaDBBsonImpl::REF));
         }
         else {
-            unset.reset(new CLowlaDBBsonImpl);
+            unset = CLowlaDBBsonImpl::empty();
         }
         answer->appendElement(original, "_id");
         bson_iterator it[1];
-        bson_iterator_init(it, update);
+        bson_iterator_init(it, original);
         while (bson_iterator_next(it)) {
             const char *key = bson_iterator_key(it);
             if (0 == strcmp("_id", key)) {
@@ -854,7 +895,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCollectionImpl::applyUpdate(CLowlaDBBs
         bson_iterator_init(it, set.get());
         while (bson_iterator_next(it)) {
             const char *key = bson_iterator_key(it);
-            if (!answer->containsKey(key)) {
+            if (!original->containsKey(key)) {
                 bson_append_element(answer.get(), nullptr, it);
             }
         }
@@ -864,7 +905,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCollectionImpl::applyUpdate(CLowlaDBBs
 }
 
 void CLowlaDBCollectionImpl::updateDocument(SqliteCursor *cursor, int64_t id, CLowlaDBBsonImpl *obj, CLowlaDBBsonImpl *oldObj, CLowlaDBBsonImpl *oldMeta) {
-    int rc, res;
+    int rc = 0, res;
     if (obj) {
         rc = cursor->insert(NULL, id, obj->data(), (int)obj->size(), (int)oldMeta->size(), false, 0);
         if (SQLITE_OK == rc) {
@@ -1038,6 +1079,12 @@ CLowlaDBBson::ptr CLowlaDBBson::create(const char *bson, bool ownsData) {
     return CLowlaDBBson::ptr(new CLowlaDBBson(pimpl));
 }
 
+CLowlaDBBson::ptr CLowlaDBBson::empty() {
+    std::unique_ptr<CLowlaDBBsonImpl> pimpl(CLowlaDBBsonImpl::empty());
+
+    return CLowlaDBBson::ptr(new CLowlaDBBson(pimpl));
+}
+
 CLowlaDBBsonImpl *CLowlaDBBson::pimpl() {
     return m_pimpl.get();
 }
@@ -1152,6 +1199,10 @@ void CLowlaDBBson::oidGenerate(char *buffer) {
     bson_oid_gen((bson_oid_t *)buffer);
 }
 
+void CLowlaDBBson::oidFromString(char *oid, const char *str) {
+    bson_oid_from_string((bson_oid_t *)oid, str);
+}
+
 const char *CLowlaDBBson::data() {
     return m_pimpl->data();
 }
@@ -1185,10 +1236,14 @@ CLowlaDBBsonImpl::~CLowlaDBBsonImpl() {
     bson_destroy(this);
 }
 
+std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBBsonImpl::empty() {
+    std::unique_ptr<CLowlaDBBsonImpl> answer = std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl);
+    answer->finish();
+    return answer;
+}
+
 const char *CLowlaDBBsonImpl::data() {
-    if (!finished) {
-        throw TeamstudioException("Attempt to access data from unfinished bson");
-    }
+    assert(finished);
     return bson_data(this);
 }
 
@@ -1201,6 +1256,7 @@ void CLowlaDBBsonImpl::finish() {
 }
 
 bool CLowlaDBBsonImpl::containsKey(const utf16string &key) {
+    assert(finished); // Iterators can run off the end of unfinished bson and crash
     bson_iterator it[1];
     bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
     return BSON_EOO != type;
@@ -2201,6 +2257,14 @@ static void bson_to_json_value(const char *bsonData, Json::Value *value) {
                 *lval = bson_iterator_long_raw(it);
                 break;
             }
+            case BSON_OID: {
+                Json::Value obj;
+                obj["_bsonType"] = "ObjectId";
+                char buf[CLowlaDBBson::OID_STRING_SIZE];
+                CLowlaDBBson::oidToString((char *)bson_iterator_oid(it), buf);
+                obj["hexString"] = buf;
+                *lval = obj;
+            }
         }
     }
 }
@@ -2244,6 +2308,15 @@ static void appendJsonValueToBson(CLowlaDBBsonImpl *bson, const char *key, const
             if (!!bsonType && bsonType.type() == Json::stringValue) {
                 if (bsonType.asString() == "Date") {
                     bson->appendDate(key, value["millis"].asInt64());
+                }
+                else if (bsonType.asString() == "ObjectId") {
+                    const char *str = value["hexString"].asString().c_str();
+                    if (24 != strlen(str)) {
+                        throw TeamstudioException("Invalid ObjectId string: " + utf16string(str));
+                    }
+                    bson_oid_t oid;
+                    bson_oid_from_string(&oid, str);
+                    bson->appendOid(key, &oid);
                 }
             }
             else {
