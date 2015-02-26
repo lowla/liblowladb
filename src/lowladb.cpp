@@ -190,6 +190,7 @@ public:
     std::unique_ptr<CLowlaDBWriteResultImpl> update(CLowlaDBBsonImpl *query, CLowlaDBBsonImpl *object, bool upsert, bool multi);
     
     SqliteCursor::ptr openCursor();
+    SqliteCursor::ptr openLogCursor();
     CLowlaDBImpl *db();
     bool shouldPullDocument(const CLowlaDBBsonImpl *atom);
     std::unique_ptr<CLowlaDBSyncDocumentLocation> locateDocumentForId(const utf16string &id);
@@ -240,6 +241,7 @@ public:
     std::unique_ptr<CLowlaDBCursorImpl> limit(int limit);
     std::unique_ptr<CLowlaDBCursorImpl> skip(int skip);
     std::unique_ptr<CLowlaDBCursorImpl> sort(std::shared_ptr<CLowlaDBBsonImpl> sort);
+    std::unique_ptr<CLowlaDBCursorImpl> showPending();
     
     std::unique_ptr<CLowlaDBCursorImpl> showDiskLoc();
     std::unique_ptr<CLowlaDBBsonImpl> next();
@@ -262,6 +264,7 @@ private:
     // The cursor has to come after the tx so that it is destructed (closed) before we end the tx
     std::unique_ptr<Tx> m_tx;
     SqliteCursor::ptr m_cursor;
+    SqliteCursor::ptr m_logCursor;
     
     CLowlaDBCollectionImpl *m_coll;
     std::shared_ptr<CLowlaDBBsonImpl> m_query;
@@ -275,6 +278,7 @@ private:
     
     int m_limit;
     int m_skip;
+    bool m_showPending;
     bool m_showDiskLoc;
 };
 
@@ -938,6 +942,10 @@ SqliteCursor::ptr CLowlaDBCollectionImpl::openCursor() {
     return m_db->openCursor(m_root);
 }
 
+SqliteCursor::ptr CLowlaDBCollectionImpl::openLogCursor() {
+    return m_db->openCursor(m_logRoot);
+}
+
 utf16string CLowlaDBCollectionImpl::getName() {
     return m_name;
 }
@@ -1471,6 +1479,11 @@ CLowlaDBCursor::ptr CLowlaDBCursor::sort(const char *sort) {
     return create(pimpl);
 }
 
+CLowlaDBCursor::ptr CLowlaDBCursor::showPending() {
+    std::unique_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->showPending();
+    return create(pimpl);
+}
+
 CLowlaDBBson::ptr CLowlaDBCursor::next() {
     std::unique_ptr<CLowlaDBBsonImpl> answer = m_pimpl->next();
     return CLowlaDBBson::create(answer);
@@ -1483,10 +1496,10 @@ int64_t CLowlaDBCursor::count() {
 CLowlaDBCursor::CLowlaDBCursor(std::unique_ptr<CLowlaDBCursorImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
 }
 
-CLowlaDBCursorImpl::CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other) : m_coll(other.m_coll), m_query(other.m_query), m_keys(other.m_keys), m_sort(other.m_sort), m_limit(other.m_limit), m_skip(other.m_skip), m_showDiskLoc(other.m_showDiskLoc) {
+CLowlaDBCursorImpl::CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other) : m_coll(other.m_coll), m_query(other.m_query), m_keys(other.m_keys), m_sort(other.m_sort), m_limit(other.m_limit), m_skip(other.m_skip), m_showPending(other.m_showPending), m_showDiskLoc(other.m_showDiskLoc) {
 }
 
-CLowlaDBCursorImpl::CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys) : m_coll(coll), m_query(query), m_keys(keys), m_limit(0), m_skip(0), m_showDiskLoc(false) {
+CLowlaDBCursorImpl::CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys) : m_coll(coll), m_query(query), m_keys(keys), m_limit(0), m_skip(0), m_showPending(false), m_showDiskLoc(false) {
 }
 
 std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::limit(int limit) {
@@ -1504,6 +1517,12 @@ std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::skip(int skip) {
 std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::sort(std::shared_ptr<CLowlaDBBsonImpl> sort) {
     std::unique_ptr<CLowlaDBCursorImpl> answer(new CLowlaDBCursorImpl(*this));
     answer->m_sort = sort;
+    return answer;
+}
+
+std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::showPending() {
+    std::unique_ptr<CLowlaDBCursorImpl> answer(new CLowlaDBCursorImpl(*this));
+    answer->m_showPending = true;
     return answer;
 }
 
@@ -1528,6 +1547,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
     if (!m_tx) {
         m_tx.reset(new Tx(m_coll->db()->btree()));
         m_cursor = m_coll->openCursor();
+        m_logCursor = m_coll->openLogCursor();
         m_unsortedOffset = 0;
         rc = m_cursor->first(&res);
     }
@@ -1542,7 +1562,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
         m_cursor->dataSize(&size);
         char *data = (char *)bson_malloc(size);
         m_cursor->data(0, size, data);
-        CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::REF);
+        CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::OWN);
         if (nullptr == m_query || matches(&found)) {
             ++m_unsortedOffset;
             if (m_skip < m_unsortedOffset && (0 == m_limit || m_unsortedOffset <= m_skip + m_limit)) {
@@ -1552,7 +1572,6 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
                 return answer;
             }
         }
-        bson_free(data);
         rc = m_cursor->next(&res);
     }
     return std::unique_ptr<CLowlaDBBsonImpl>();
@@ -1564,6 +1583,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextSorted() {
     if (!m_tx) {
         m_tx.reset(new Tx(m_coll->db()->btree()));
         m_cursor = m_coll->openCursor();
+        m_logCursor = m_coll->openLogCursor();
         performSortedQuery();
     }
     
@@ -1577,7 +1597,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextSorted() {
         m_cursor->dataSize(&size);
         char *data = (char *)bson_malloc(size);
         m_cursor->data(0, size, data);
-        CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::REF);
+        CLowlaDBBsonImpl found(data, CLowlaDBBsonImpl::OWN);
         std::unique_ptr<CLowlaDBBsonImpl> answer = project(&found, id);
         return answer;
     }
@@ -1863,12 +1883,25 @@ bool CLowlaDBCursorImpl::matches(CLowlaDBBsonImpl *found) {
 }
 
 std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::project(CLowlaDBBsonImpl *found, i64 id) {
-    if (nullptr == m_keys && !m_showDiskLoc) {
+    if (nullptr == m_keys && !m_showDiskLoc && !m_showPending) {
+        if (found->ownsData) {
+            found->ownsData = false;
+        }
         std::unique_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl(found->data(), CLowlaDBBsonImpl::OWN));
         return answer;
     }
     std::unique_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl());
     answer->appendElement(found, "_id");
+    bson_iterator it[1];
+    bson_iterator_init(it, found);
+    while (BSON_EOO != bson_iterator_next(it)) {
+        const char *key = bson_iterator_key(it);
+        if (nullptr == m_keys) {
+            if (0 != strcmp("_id", key)) {
+                bson_append_element(answer.get(), nullptr, it);
+            }
+        }
+    }
     if (m_showDiskLoc) {
         CLowlaDBBsonImpl diskLoc[1];
         diskLoc->appendInt("file", 0);
@@ -1876,6 +1909,12 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::project(CLowlaDBBsonImpl *
         diskLoc->finish();
         answer->appendObject("$diskLoc", diskLoc->data());
     }
+    if (m_showPending) {
+        int res = 0;
+        int rc = m_logCursor->movetoUnpacked(nullptr, id, 0, &res);
+        answer->appendBool("$pending", SQLITE_OK == rc && 0 == res);
+    }
+    answer->finish();
     return answer;
 }
 

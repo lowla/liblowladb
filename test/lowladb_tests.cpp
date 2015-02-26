@@ -853,6 +853,35 @@ TEST_F(DbTestFixture, test_cursor_unsorted_skip_limit) {
     EXPECT_FALSE(cursor->next());
 }
 
+TEST_F(DbTestFixture, test_cursor_show_pending) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 2);
+    bson->appendInt("b", 20);
+    bson->finish();
+    coll->insert(bson->data());
+
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    CLowlaDBBson::ptr doc = cursor->next();
+    EXPECT_FALSE(doc->containsKey("$pending"));
+    
+    cursor = CLowlaDBCursor::create(coll, nullptr);
+    cursor = cursor->showPending();
+    doc = cursor->next();
+    bool val;
+    EXPECT_TRUE(doc->boolForKey("$pending", &val));
+    EXPECT_TRUE(val);
+    doc = cursor->next();
+    EXPECT_TRUE(!!doc);
+    EXPECT_TRUE(doc->boolForKey("$pending", &val));
+    EXPECT_TRUE(val);
+    EXPECT_FALSE(cursor->next());
+}
+
 TEST_F(DbTestFixture, test_parse_syncer_response) {
     CLowlaDBBson::ptr syncResponse = CLowlaDBBson::create();
     

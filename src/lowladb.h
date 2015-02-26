@@ -136,6 +136,7 @@ public:
     CLowlaDBCursor::ptr limit(int limit);
     CLowlaDBCursor::ptr skip(int skip);
     CLowlaDBCursor::ptr sort(const char *sort);
+    CLowlaDBCursor::ptr showPending();
     
     CLowlaDBBson::ptr next();
     int64_t count();
