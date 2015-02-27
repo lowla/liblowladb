@@ -71,8 +71,8 @@ public:
     atomIterator atomsBegin();
     atomIterator atomsEnd();
     atomIterator eraseAtom(atomIterator walk);
-    void eraseAtom(const utf16string &id);
-    void setRequestMore(const utf16string &requestMore);
+    void eraseAtom(const char *id);
+    void setRequestMore(const char *requestMore);
     bool hasRequestMore();
     utf16string getRequestMore();
 
@@ -96,7 +96,7 @@ public:
     
     SqliteCursor::ptr openCursor(int root);
     Btree *btree();
-
+    
 private:
     sqlite3 *m_pDb;
 };
@@ -145,32 +145,32 @@ public:
     
     static std::unique_ptr<CLowlaDBBsonImpl> empty();
     
-    bool containsKey(const utf16string &key);
-    void appendDouble(const utf16string &key, double value);
-    void appendString(const utf16string &key, const utf16string &value);
-    void appendObject(const utf16string &key, const char *value);
-    void appendOid(const utf16string &key, const bson_oid_t *oid);
-    void appendBool(const utf16string &key, bool value);
-    void appendDate(const utf16string &key, int64_t value);
-    void appendInt(const utf16string &key, int value);
-    void appendLong(const utf16string &key, int64_t value);
+    bool containsKey(const char *key);
+    void appendDouble(const char *ey, double value);
+    void appendString(const char *key, const char *value);
+    void appendObject(const char *key, const char *value);
+    void appendOid(const char *key, const bson_oid_t *oid);
+    void appendBool(const char *key, bool value);
+    void appendDate(const char *key, int64_t value);
+    void appendInt(const char *key, int value);
+    void appendLong(const char *key, int64_t value);
     void appendAll(CLowlaDBBsonImpl *bson);
-    void appendElement(const CLowlaDBBsonImpl *src, const utf16string &key);
+    void appendElement(const CLowlaDBBsonImpl *src, const char *key);
     
-    void startArray(const utf16string &key);
+    void startArray(const char *key);
     void finishArray();
-    void startObject(const utf16string &key);
+    void startObject(const char *key);
     void finishObject();
     
-    bool doubleForKey(const utf16string &key, double *ret);
-    utf16string stringForKey(const utf16string &key) const;
-    bool objectForKey(const utf16string &key, const char **ret);
-    bool arrayForKey(const utf16string &key, const char **ret);
-    bool oidForKey(const utf16string &key, bson_oid_t *ret);
-    bool boolForKey(const utf16string &key, bool *ret) const;
-    bool dateForKey(const utf16string &key, bson_date_t *ret);
-    bool intForKey(const utf16string &key, int *ret);
-    bool longForKey(const utf16string &key, int64_t *ret);
+    bool doubleForKey(const char *key, double *ret);
+    bool stringForKey(const char *key, const char **ret) const;
+    bool objectForKey(const char *key, const char **ret);
+    bool arrayForKey(const char *key, const char **ret);
+    bool oidForKey(const char *key, bson_oid_t *ret);
+    bool boolForKey(const char *key, bool *ret) const;
+    bool dateForKey(const char *key, bson_date_t *ret);
+    bool intForKey(const char *key, int *ret);
+    bool longForKey(const char *key, int64_t *ret);
     
     const char *valueForKey(const char *key, long *count);
     
@@ -183,7 +183,7 @@ public:
 class CLowlaDBCollectionImpl {
 public:
     CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot);
-    std::unique_ptr<CLowlaDBWriteResultImpl> insert(CLowlaDBBsonImpl *obj, const utf16string &lowlaId);
+    std::unique_ptr<CLowlaDBWriteResultImpl> insert(CLowlaDBBsonImpl *obj, const char *lowlaId);
     std::unique_ptr<CLowlaDBWriteResultImpl> insert(std::vector<CLowlaDBBsonImpl> &arr);
     std::unique_ptr<CLowlaDBWriteResultImpl> remove(CLowlaDBBsonImpl *query);
     std::unique_ptr<CLowlaDBWriteResultImpl> save(CLowlaDBBsonImpl *obj);
@@ -193,7 +193,7 @@ public:
     SqliteCursor::ptr openLogCursor();
     CLowlaDBImpl *db();
     bool shouldPullDocument(const CLowlaDBBsonImpl *atom);
-    std::unique_ptr<CLowlaDBSyncDocumentLocation> locateDocumentForId(const utf16string &id);
+    std::unique_ptr<CLowlaDBSyncDocumentLocation> locateDocumentForId(const char *id);
     utf16string getName();
 
     void updateDocument(SqliteCursor *cursor, int64_t id, CLowlaDBBsonImpl *obj, CLowlaDBBsonImpl *oldObj, CLowlaDBBsonImpl *oldMeta);
@@ -600,7 +600,20 @@ CLowlaDBWriteResult::ptr CLowlaDBCollection::update(const char *queryBson, const
 }
 
 static utf16string generateLowlaId(CLowlaDBCollectionImpl *coll, CLowlaDBBsonImpl *obj) {
-    return coll->getName() + "$" + obj->stringForKey("_id");
+    const char *id;
+    bson_oid_t oid;
+    if (obj->stringForKey("_id", &id)) {
+        return coll->getName() + "$" + id;
+    }
+    else if (obj->oidForKey("_id", &oid)) {
+        char buf[CLowlaDBBson::OID_STRING_SIZE];
+        CLowlaDBBson::oidToString((const char *)&oid, buf);
+        return coll->getName() + "$ObjectID(" + buf + ")";
+    }
+    else {
+        return "";
+        assert(false);
+    }
 }
 
 CLowlaDBCollectionImpl::CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot) : m_db(db), m_name(name), m_root(root), m_logRoot(logRoot) {
@@ -655,7 +668,7 @@ static void throwIfDocumentInvalidForUpdate(bson const *obj) {
         }
     }
 }
-std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDBBsonImpl *obj, const utf16string &lowlaId) {
+std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDBBsonImpl *obj, const char *lowlaId) {
     
     throwIfDocumentInvalidForInsertion(obj);
     if (!obj->containsKey("_id")) {
@@ -682,11 +695,11 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDB
     }
     i64 newId = lastInternalId + 1;
     CLowlaDBBsonImpl meta;
-    if (lowlaId.isEmpty()) {
+    if (nullptr != lowlaId) {
         meta.appendString("id", lowlaId);
     }
     else {
-        meta.appendString("id", generateLowlaId(this, obj));
+        meta.appendString("id", generateLowlaId(this, obj).c_str());
     }
     meta.finish();
     rc = cursor->insert(NULL, newId, obj->data(), (int)obj->size(), (int)meta.size(), true, 0);
@@ -743,7 +756,7 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vec
         }
         i64 newId = lastInternalId + 1;
         CLowlaDBBsonImpl meta;
-        meta.appendString("id", generateLowlaId(this, obj));
+        meta.appendString("id", generateLowlaId(this, obj).c_str());
         meta.finish();
         rc = cursor->insert(NULL, newId, obj->data(), (int)obj->size(), (int)meta.size(), true, 0);
         if (SQLITE_OK == rc) {
@@ -954,7 +967,7 @@ CLowlaDBImpl *CLowlaDBCollectionImpl::db() {
     return m_db;
 }
 
-std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocumentForId(const utf16string &id) {
+std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocumentForId(const char *id) {
     std::unique_ptr<CLowlaDBSyncDocumentLocation> answer(new CLowlaDBSyncDocumentLocation);
 
     // Locate the document by its lowla key
@@ -973,8 +986,9 @@ std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocu
         char meta[metaSize];
         cursor->data(objSize, metaSize, meta);
         CLowlaDBBsonImpl metaBson(meta, CLowlaDBBsonImpl::REF);
-        utf16string foundKey = metaBson.stringForKey("id");
-        if (foundKey == id) {
+        const char *foundKey;
+        metaBson.stringForKey("id", &foundKey);
+        if (0 == strcmp(foundKey, id)) {
             char *data = (char *)bson_malloc(objSize);
             cursor->data(0, objSize, data);
             answer->m_found.reset(new CLowlaDBBsonImpl(data, CLowlaDBBsonImpl::OWN));
@@ -1000,7 +1014,9 @@ bool CLowlaDBCollectionImpl::shouldPullDocument(const CLowlaDBBsonImpl *atom) {
     
     Tx tx(m_db->btree());
     
-    std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = locateDocumentForId(atom->stringForKey("id"));
+    const char *id;
+    atom->stringForKey("id", &id);
+    std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = locateDocumentForId(id);
 
     // If found
     if (loc->m_found) {
@@ -1012,9 +1028,11 @@ bool CLowlaDBCollectionImpl::shouldPullDocument(const CLowlaDBBsonImpl *atom) {
         const char *_lowlaObj;
         if (loc->m_found->objectForKey("_lowla", &_lowlaObj)) {
             CLowlaDBBsonImpl _lowla(_lowlaObj, CLowlaDBBsonImpl::REF);
-            utf16string foundVersion = _lowla.stringForKey("version");
-            utf16string atomVersion = atom->stringForKey("version");
-            if (foundVersion == atomVersion) {
+            const char *foundVersion = "";
+            _lowla.stringForKey("version", &foundVersion);
+            const char *atomVersion = "";
+            atom->stringForKey("version", &atomVersion);
+            if (0 == strcmp(foundVersion, atomVersion)) {
                 return false;
             }
         }
@@ -1097,39 +1115,39 @@ CLowlaDBBsonImpl *CLowlaDBBson::pimpl() {
     return m_pimpl.get();
 }
 
-void CLowlaDBBson::appendDouble(const utf16string &key, double value) {
+void CLowlaDBBson::appendDouble(const char *key, double value) {
     m_pimpl->appendDouble(key, value);
 }
 
-void CLowlaDBBson::appendString(const utf16string &key, const utf16string &value) {
+void CLowlaDBBson::appendString(const char *key, const char *value) {
     m_pimpl->appendString(key, value);
 }
 
-void CLowlaDBBson::appendObject(const utf16string &key, const char *value) {
+void CLowlaDBBson::appendObject(const char *key, const char *value) {
     m_pimpl->appendObject(key, value);
 }
 
-void CLowlaDBBson::appendOid(const utf16string &key, const void *value) {
+void CLowlaDBBson::appendOid(const char *key, const void *value) {
     m_pimpl->appendOid(key, (const bson_oid_t *)value);
 }
 
-void CLowlaDBBson::appendBool(const utf16string &key, bool value) {
+void CLowlaDBBson::appendBool(const char *key, bool value) {
     m_pimpl->appendBool(key, value);
 }
 
-void CLowlaDBBson::appendDate(const utf16string &key, int64_t value) {
+void CLowlaDBBson::appendDate(const char *key, int64_t value) {
     m_pimpl->appendDate(key, value);
 }
 
-void CLowlaDBBson::appendInt(const utf16string &key, int value) {
+void CLowlaDBBson::appendInt(const char *key, int value) {
     m_pimpl->appendInt(key, value);
 }
 
-void CLowlaDBBson::appendLong(const utf16string &key, int64_t value) {
+void CLowlaDBBson::appendLong(const char *key, int64_t value) {
     m_pimpl->appendLong(key, value);
 }
 
-void CLowlaDBBson::startArray(const utf16string &key) {
+void CLowlaDBBson::startArray(const char *key) {
     m_pimpl->startArray(key);
 }
 
@@ -1137,7 +1155,7 @@ void CLowlaDBBson::finishArray() {
     m_pimpl->finishArray();
 }
 
-void CLowlaDBBson::startObject(const utf16string &key) {
+void CLowlaDBBson::startObject(const char *key) {
     m_pimpl->startObject(key);
 }
 
@@ -1149,19 +1167,19 @@ void CLowlaDBBson::finish() {
     m_pimpl->finish();
 }
 
-bool CLowlaDBBson::containsKey(const utf16string &key) {
+bool CLowlaDBBson::containsKey(const char *key) {
     return m_pimpl->containsKey(key);
 }
 
-bool CLowlaDBBson::doubleForKey(const utf16string &key, double *ret) {
+bool CLowlaDBBson::doubleForKey(const char *key, double *ret) {
     return m_pimpl->doubleForKey(key, ret);
 }
 
-utf16string CLowlaDBBson::stringForKey(const utf16string &key) {
-    return m_pimpl->stringForKey(key);
+bool CLowlaDBBson::stringForKey(const char *key, const char **ret) {
+    return m_pimpl->stringForKey(key, ret);
 }
 
-bool CLowlaDBBson::objectForKey(const utf16string &key, CLowlaDBBson::ptr *ret) {
+bool CLowlaDBBson::objectForKey(const char *key, CLowlaDBBson::ptr *ret) {
     const char *objBson;
     if (m_pimpl->objectForKey(key, &objBson)) {
         *ret = create(objBson, false);
@@ -1170,7 +1188,7 @@ bool CLowlaDBBson::objectForKey(const utf16string &key, CLowlaDBBson::ptr *ret) 
     return false;
 }
 
-bool CLowlaDBBson::arrayForKey(const utf16string &key, CLowlaDBBson::ptr *ret) {
+bool CLowlaDBBson::arrayForKey(const char *key, CLowlaDBBson::ptr *ret) {
     const char *objBson;
     if (m_pimpl->arrayForKey(key, &objBson)) {
         *ret = create(objBson, false);
@@ -1179,23 +1197,23 @@ bool CLowlaDBBson::arrayForKey(const utf16string &key, CLowlaDBBson::ptr *ret) {
     return false;
 }
 
-bool CLowlaDBBson::oidForKey(const utf16string &key, char *ret) {
+bool CLowlaDBBson::oidForKey(const char *key, char *ret) {
     return m_pimpl->oidForKey(key, (bson_oid_t *)ret);
 }
 
-bool CLowlaDBBson::boolForKey(const utf16string &key, bool *ret) {
+bool CLowlaDBBson::boolForKey(const char *key, bool *ret) {
     return m_pimpl->boolForKey(key, ret);
 }
 
-bool CLowlaDBBson::dateForKey(const utf16string &key, int64_t *ret) {
+bool CLowlaDBBson::dateForKey(const char *key, int64_t *ret) {
     return m_pimpl->dateForKey(key, ret);
 }
 
-bool CLowlaDBBson::intForKey(const utf16string &key, int *ret) {
+bool CLowlaDBBson::intForKey(const char *key, int *ret) {
     return m_pimpl->intForKey(key, ret);
 }
 
-bool CLowlaDBBson::longForKey(const utf16string &key, int64_t *ret) {
+bool CLowlaDBBson::longForKey(const char *key, int64_t *ret) {
     return m_pimpl->longForKey(key, ret);
 }
 
@@ -1263,46 +1281,46 @@ void CLowlaDBBsonImpl::finish() {
     bson_finish(this);
 }
 
-bool CLowlaDBBsonImpl::containsKey(const utf16string &key) {
+bool CLowlaDBBsonImpl::containsKey(const char *key) {
     assert(finished); // Iterators can run off the end of unfinished bson and crash
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     return BSON_EOO != type;
 }
 
-void CLowlaDBBsonImpl::appendDouble(const utf16string &key, double value) {
-    bson_append_double(this, key.c_str(utf16string::UTF8), value);
+void CLowlaDBBsonImpl::appendDouble(const char *key, double value) {
+    bson_append_double(this, key, value);
 }
 
-void CLowlaDBBsonImpl::appendString(const utf16string &key, const utf16string &value) {
-    bson_append_string(this, key.c_str(utf16string::UTF8), value.c_str(utf16string::UTF8));
+void CLowlaDBBsonImpl::appendString(const char *key, const char *value) {
+    bson_append_string(this, key, value);
 }
 
-void CLowlaDBBsonImpl::appendObject(const utf16string &key, const char *value) {
-    bson_append_start_object(this, key.c_str(utf16string::UTF8));
+void CLowlaDBBsonImpl::appendObject(const char *key, const char *value) {
+    bson_append_start_object(this, key);
     CLowlaDBBsonImpl obj(value, CLowlaDBBsonImpl::REF);
     appendAll(&obj);
     bson_append_finish_object(this);
 }
 
-void CLowlaDBBsonImpl::appendOid(const utf16string &key, const bson_oid_t *oid) {
-    bson_append_oid(this, key.c_str(utf16string::UTF8), oid);
+void CLowlaDBBsonImpl::appendOid(const char *key, const bson_oid_t *oid) {
+    bson_append_oid(this, key, oid);
 }
 
-void CLowlaDBBsonImpl::appendBool(const utf16string &key, bool value) {
-    bson_append_bool(this, key.c_str(utf16string::UTF8), value);
+void CLowlaDBBsonImpl::appendBool(const char *key, bool value) {
+    bson_append_bool(this, key, value);
 }
 
-void CLowlaDBBsonImpl::appendDate(const utf16string &key, int64_t value) {
-    bson_append_date(this, key.c_str(utf16string::UTF8), value);
+void CLowlaDBBsonImpl::appendDate(const char *key, int64_t value) {
+    bson_append_date(this, key, value);
 }
 
-void CLowlaDBBsonImpl::appendInt(const utf16string &key, int value) {
-    bson_append_int(this, key.c_str(utf16string::UTF8), value);
+void CLowlaDBBsonImpl::appendInt(const char *key, int value) {
+    bson_append_int(this, key, value);
 }
 
-void CLowlaDBBsonImpl::appendLong(const utf16string &key, int64_t value) {
-    bson_append_long(this, key.c_str(utf16string::UTF8), value);
+void CLowlaDBBsonImpl::appendLong(const char *key, int64_t value) {
+    bson_append_long(this, key, value);
 }
 
 void CLowlaDBBsonImpl::appendAll(CLowlaDBBsonImpl *bson) {
@@ -1313,33 +1331,33 @@ void CLowlaDBBsonImpl::appendAll(CLowlaDBBsonImpl *bson) {
     }
 }
 
-void CLowlaDBBsonImpl::appendElement(const CLowlaDBBsonImpl *src, const utf16string &key) {
+void CLowlaDBBsonImpl::appendElement(const CLowlaDBBsonImpl *src, const char *key) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, src, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, src, key);
     if (BSON_EOO != type) {
         bson_append_element(this, nullptr, it);
     }
 }
 
-void CLowlaDBBsonImpl::startArray(const utf16string &key) {
-    bson_append_start_array(this, key.c_str(utf16string::UTF8));
+void CLowlaDBBsonImpl::startArray(const char *key) {
+    bson_append_start_array(this, key);
 }
 
 void CLowlaDBBsonImpl::finishArray() {
     bson_append_finish_array(this);
 }
 
-void CLowlaDBBsonImpl::startObject(const utf16string &key) {
-    bson_append_start_object(this, key.c_str(utf16string::UTF8));
+void CLowlaDBBsonImpl::startObject(const char *key) {
+    bson_append_start_object(this, key);
 }
 
 void CLowlaDBBsonImpl::finishObject() {
     bson_append_finish_object(this);
 }
 
-bool CLowlaDBBsonImpl::doubleForKey(const utf16string &key, double *ret) {
+bool CLowlaDBBsonImpl::doubleForKey(const char *key, double *ret) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_DOUBLE == type) {
         *ret = bson_iterator_double(it);
         return true;
@@ -1347,18 +1365,19 @@ bool CLowlaDBBsonImpl::doubleForKey(const utf16string &key, double *ret) {
     return false;
 }
 
-utf16string CLowlaDBBsonImpl::stringForKey(const utf16string &key) const {
+bool CLowlaDBBsonImpl::stringForKey(const char *key, const char **ret) const {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_STRING == type) {
-        return utf16string(bson_iterator_string(it), utf16string::UTF8);
+        *ret = bson_iterator_string(it);
+        return true;
     }
-    return "";
+    return false;
 }
 
-bool CLowlaDBBsonImpl::objectForKey(const utf16string &key, const char **ret) {
+bool CLowlaDBBsonImpl::objectForKey(const char *key, const char **ret) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_OBJECT == type) {
         bson sub[1];
         bson_iterator_subobject_init(it, sub, false);
@@ -1368,9 +1387,9 @@ bool CLowlaDBBsonImpl::objectForKey(const utf16string &key, const char **ret) {
     return false;
 }
 
-bool CLowlaDBBsonImpl::arrayForKey(const utf16string &key, const char **ret) {
+bool CLowlaDBBsonImpl::arrayForKey(const char *key, const char **ret) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_ARRAY == type) {
         bson sub[1];
         bson_iterator_subobject_init(it, sub, false);
@@ -1380,9 +1399,9 @@ bool CLowlaDBBsonImpl::arrayForKey(const utf16string &key, const char **ret) {
     return false;
 }
 
-bool CLowlaDBBsonImpl::oidForKey(const utf16string &key, bson_oid_t *ret) {
+bool CLowlaDBBsonImpl::oidForKey(const char *key, bson_oid_t *ret) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_OID == type) {
         *ret = *bson_iterator_oid(it);
         return true;
@@ -1390,9 +1409,9 @@ bool CLowlaDBBsonImpl::oidForKey(const utf16string &key, bson_oid_t *ret) {
     return false;
 }
 
-bool CLowlaDBBsonImpl::boolForKey(const utf16string &key, bool *ret) const {
+bool CLowlaDBBsonImpl::boolForKey(const char *key, bool *ret) const {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_BOOL == type) {
         *ret = bson_iterator_bool_raw(it);
         return true;
@@ -1400,9 +1419,9 @@ bool CLowlaDBBsonImpl::boolForKey(const utf16string &key, bool *ret) const {
     return false;
 }
 
-bool CLowlaDBBsonImpl::dateForKey(const utf16string &key, bson_date_t *ret) {
+bool CLowlaDBBsonImpl::dateForKey(const char *key, bson_date_t *ret) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_DATE == type) {
         *ret = bson_iterator_date(it);
         return true;
@@ -1410,9 +1429,9 @@ bool CLowlaDBBsonImpl::dateForKey(const utf16string &key, bson_date_t *ret) {
     return false;
 }
 
-bool CLowlaDBBsonImpl::intForKey(const utf16string &key, int *ret) {
+bool CLowlaDBBsonImpl::intForKey(const char *key, int *ret) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_INT == type) {
         *ret = bson_iterator_int_raw(it);
         return true;
@@ -1420,9 +1439,9 @@ bool CLowlaDBBsonImpl::intForKey(const utf16string &key, int *ret) {
     return false;
 }
 
-bool CLowlaDBBsonImpl::longForKey(const utf16string &key, int64_t *ret) {
+bool CLowlaDBBsonImpl::longForKey(const char *key, int64_t *ret) {
     bson_iterator it[1];
-    bson_type type = bson_find(it, this, key.c_str(utf16string::UTF8));
+    bson_type type = bson_find(it, this, key);
     if (BSON_LONG == type) {
         *ret = bson_iterator_long_raw(it);
         return true;
@@ -2055,16 +2074,17 @@ CLowlaDBPullDataImpl::atomIterator CLowlaDBPullDataImpl::eraseAtom(atomIterator 
     return m_atoms.erase(walk);
 }
 
-void CLowlaDBPullDataImpl::eraseAtom(const utf16string &id) {
+void CLowlaDBPullDataImpl::eraseAtom(const char *id) {
     for (atomIterator walk = m_atoms.begin() ; walk != m_atoms.end() ; ++walk) {
-        if (walk->stringForKey("id").equals(id)) {
+        const char *val;
+        if (walk->stringForKey("id", &val) && 0 == strcmp(val, id)) {
             m_atoms.erase(walk);
             return;
         }
     }
 }
 
-void CLowlaDBPullDataImpl::setRequestMore(const utf16string &requestMore) {
+void CLowlaDBPullDataImpl::setRequestMore(const char *requestMore) {
     m_requestMore = requestMore;
 }
 
@@ -2127,8 +2147,9 @@ static bool shouldPullDocument(const CLowlaDBBsonImpl &atom, CLowlaDBNsCache &ca
     if (atom.boolForKey("deleted", &deleted) && deleted) {
         return false;
     }
-    utf16string ns = atom.stringForKey("clientNs");
-    CLowlaDBCollectionImpl *coll = cache.collectionForNs(ns.c_str(utf16string::UTF8));
+    const char *ns;
+    atom.stringForKey("clientNs", &ns);
+    CLowlaDBCollectionImpl *coll = cache.collectionForNs(ns);
     if (coll) {
         return coll->shouldPullDocument(&atom);
     }
@@ -2140,7 +2161,7 @@ CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
     CLowlaDBNsCache cacheNs;
     std::unique_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl);
     if (pullData->hasRequestMore()) {
-        answer->appendString("requestMore", pullData->getRequestMore());
+        answer->appendString("requestMore", pullData->getRequestMore().c_str());
         answer->finish();
         return CLowlaDBBson::create(answer);
     }
@@ -2151,7 +2172,9 @@ CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
     while (walk != end) {
         const CLowlaDBBsonImpl &atom = *walk;
         if (shouldPullDocument(atom, cacheNs)) {
-            answer->appendString(utf16string::valueOf(i++), atom.stringForKey("id"));
+            const char *id;
+            atom.stringForKey("id", &id);
+            answer->appendString(utf16string::valueOf(i++).c_str(), id);
         }
         if (PULL_BATCH_SIZE == i) {
             break;
@@ -2170,10 +2193,13 @@ void processLeadingDeletions(CLowlaDBPullDataImpl *pullData, CLowlaDBNsCache &ca
         const CLowlaDBBsonImpl &atom = *walk;
         bool isDeletion;
         if (atom.boolForKey("deleted", &isDeletion) && isDeletion) {
-            utf16string ns = atom.stringForKey("clientNs");
-            CLowlaDBCollectionImpl *coll = cache.collectionForNs(ns.c_str(utf16string::UTF8));
+            const char *ns;
+            atom.stringForKey("clientNs", &ns);
+            CLowlaDBCollectionImpl *coll = cache.collectionForNs(ns);
             if (coll) {
-                std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = coll->locateDocumentForId(atom.stringForKey("id"));
+                const char *id;
+                atom.stringForKey("id", &id);
+                std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = coll->locateDocumentForId(id);
                 // We only process the deletion if there is no outgoing record
                 if (!loc->m_logFound && loc->m_found) {
                     loc->m_cursor->deleteCurrent();
@@ -2187,15 +2213,16 @@ void processLeadingDeletions(CLowlaDBPullDataImpl *pullData, CLowlaDBNsCache &ca
     }
 }
 
-void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> response, CLowlaDBPullData::ptr pd) {
+void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPullData::ptr pd) {
     CLowlaDBPullDataImpl *pullData = pd->pimpl();
     CLowlaDBNsCache cache;
     int i = 0;
     while (i < response.size()) {
         processLeadingDeletions(pullData, cache);
         CLowlaDBBson::ptr metaBson = response[i];
-        if (metaBson->containsKey("requestMore")) {
-            pullData->setRequestMore(metaBson->stringForKey("requestMore"));
+        const char *requestMore;
+        if (metaBson->stringForKey("requestMore", &requestMore)) {
+            pullData->setRequestMore(requestMore);
             ++i;
             continue;
         }
@@ -2208,14 +2235,17 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> response, 
             ++i;
         }
 
-        utf16string ns = metaBson->stringForKey("clientNs");
-        CLowlaDBCollectionImpl *coll = cache.collectionForNs(ns.c_str(utf16string::UTF8));
+        const char *ns;
+        metaBson->stringForKey("clientNs", &ns);
+        CLowlaDBCollectionImpl *coll = cache.collectionForNs(ns);
         if (!coll) {
             ++i;
             continue;
         }
         Tx tx(coll->db()->btree());
-        std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = coll->locateDocumentForId(metaBson->stringForKey("id"));
+        const char *id;
+        metaBson->stringForKey("id", &id);
+        std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = coll->locateDocumentForId(id);
         // Don't do anything if there's an outgoing log document
         if (loc->m_logFound) {
             ++i;
@@ -2232,13 +2262,13 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> response, 
                 coll->updateDocument(loc->m_cursor.get(), loc->m_sqliteId, dataBson->pimpl(), loc->m_found.get(), loc->m_foundMeta.get());
             }
             else {
-                coll->insert(dataBson->pimpl(), metaBson->stringForKey("id"));
+                coll->insert(dataBson->pimpl(), id);
             }
         }
         loc->m_cursor->close();
         tx.commit();
         // Clear the id from the todo list
-        pullData->eraseAtom(metaBson->stringForKey("id"));
+        pullData->eraseAtom(id);
         ++i;
     }
     processLeadingDeletions(pullData, cache);
@@ -2369,16 +2399,44 @@ static void appendJsonValueToBson(CLowlaDBBsonImpl *bson, const char *key, const
     }
 }
 
+static CLowlaDBBson::ptr jsonValue_to_bson(const Json::Value &value) {
+    CLowlaDBBson::ptr answer = CLowlaDBBson::create();
+    for (Json::Value::iterator it = value.begin() ; it != value.end() ; ++it) {
+        appendJsonValueToBson(answer->pimpl(), it.memberName(), *it);
+    }
+    answer->finish();
+    return answer;
+}
+
 CLowlaDBBson::ptr lowladb_json_to_bson(const utf16string &json) {
     Json::Value root;
     Json::Reader reader;
     if (reader.parse(json.c_str(utf16string::UTF8), root, false)) {
-        CLowlaDBBson::ptr answer = CLowlaDBBson::create();
-        for (Json::Value::iterator it = root.begin() ; it != root.end() ; ++it) {
-            appendJsonValueToBson(answer->pimpl(), it.memberName(), *it);
-        }
-        answer->finish();
-        return answer;
+        return jsonValue_to_bson(root);
     }
     return CLowlaDBBson::ptr();
 }
+
+void lowladb_load_json(const char *json) {
+    Json::Value root;
+    Json::Reader reader;
+    if (!reader.parse(json, root, false)) {
+        return;
+    }
+    
+    // Create an empty pull data - required by process_pull_response
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(CLowlaDBBsonImpl::empty()->data());
+    Json::Value documents = root["documents"];
+    if (!documents.isArray()) {
+        return;
+    }
+    for (Json::ArrayIndex i = 0 ; i < documents.size(); ++i) {
+        Json::Value chunk = documents[i];
+        std::vector<CLowlaDBBson::ptr> bsonChunk;
+        for (Json::ArrayIndex j = 0 ; j < chunk.size() ; ++j) {
+            bsonChunk.push_back(jsonValue_to_bson(chunk[j]));
+        }
+        lowladb_apply_pull_response(bsonChunk, pd);
+    }
+}
+

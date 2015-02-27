@@ -6,6 +6,8 @@
 //  Copyright (c) 2014 Lowla. All rights reserved.
 //
 
+#include <fstream>
+
 #include "gtest.h"
 
 #include "TeamstudioException.h"
@@ -154,7 +156,9 @@ TEST_F(DbTestFixture, test_update_replace_single_doc) {
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
     EXPECT_TRUE(check->containsKey("myfield2"));
-    EXPECT_EQ("mystring2", check->stringForKey("myfield2"));
+    const char *val;
+    EXPECT_TRUE(check->stringForKey("myfield2", &val));
+    EXPECT_STREQ("mystring2", val);
     EXPECT_FALSE(check->containsKey("myfield"));
     char bufCheck[CLowlaDBBson::OID_SIZE];
     EXPECT_TRUE(check->oidForKey("_id", bufCheck));
@@ -162,8 +166,8 @@ TEST_F(DbTestFixture, test_update_replace_single_doc) {
     
     // Make sure we didn't touch the next document
     check = cursor->next();
-    EXPECT_TRUE(check->containsKey("myfield"));
-    EXPECT_EQ("mystring", check->stringForKey("myfield"));
+    EXPECT_TRUE(check->stringForKey("myfield", &val));
+    EXPECT_STREQ("mystring", val);
     EXPECT_FALSE(check->containsKey("myfield2"));
     
     // Make sure we didn't create any unexpected documents
@@ -198,20 +202,21 @@ TEST_F(DbTestFixture, test_update_set_single_doc) {
     // Make sure we updated the document correctly, replacing existing fields and not changing _id
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
-    EXPECT_TRUE(check->containsKey("myfield"));
-    EXPECT_EQ("mystringMod", check->stringForKey("myfield"));
-    EXPECT_TRUE(check->containsKey("myfield2"));
-    EXPECT_EQ("mystring2", check->stringForKey("myfield2"));
-    EXPECT_TRUE(check->containsKey("myfield3"));
-    EXPECT_EQ("mystring3", check->stringForKey("myfield3"));
+    const char *val;
+    EXPECT_TRUE(check->stringForKey("myfield", &val));
+    EXPECT_STREQ("mystringMod", val);
+    EXPECT_TRUE(check->stringForKey("myfield2", &val));
+    EXPECT_STREQ("mystring2", val);
+    EXPECT_TRUE(check->stringForKey("myfield3", &val));
+    EXPECT_STREQ("mystring3", val);
     char bufCheck[CLowlaDBBson::OID_SIZE];
     EXPECT_TRUE(check->oidForKey("_id", bufCheck));
     EXPECT_TRUE(0 == memcmp(bufCheck, buf1, CLowlaDBBson::OID_SIZE));
     
     // Make sure we didn't touch the next document
     check = cursor->next();
-    EXPECT_TRUE(check->containsKey("myfield"));
-    EXPECT_EQ("mystring", check->stringForKey("myfield"));
+    EXPECT_TRUE(check->stringForKey("myfield", &val));
+    EXPECT_STREQ("mystring", val);
     EXPECT_FALSE(check->containsKey("myfield2"));
     
     // Make sure we didn't create any unexpected documents
@@ -520,9 +525,12 @@ TEST_F(DbTestFixture, test_cursor_sort_string_ascending) {
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     cursor = cursor->sort(bson->data());
     CLowlaDBBson::ptr doc = cursor->next();
-    EXPECT_EQ("alpha", doc->stringForKey("a"));
+    const char *val;
+    EXPECT_TRUE(doc->stringForKey("a", &val));
+    EXPECT_STREQ("alpha", val);
     doc = cursor->next();
-    EXPECT_EQ("beta", doc->stringForKey("a"));
+    EXPECT_TRUE(doc->stringForKey("a", &val));
+    EXPECT_STREQ("beta", val);
     EXPECT_FALSE(cursor->next());
 }
 
@@ -582,7 +590,9 @@ TEST_F(DbTestFixture, test_cursor_sort_int_before_string) {
     EXPECT_TRUE(doc->intForKey("a", &val));
     EXPECT_EQ(2, val);
     doc = cursor->next();
-    EXPECT_EQ("beta", doc->stringForKey("a"));
+    const char *sval;
+    EXPECT_TRUE(doc->stringForKey("a", &sval));
+    EXPECT_STREQ("beta", sval);
     EXPECT_FALSE(cursor->next());
 }
 
@@ -603,7 +613,9 @@ TEST_F(DbTestFixture, test_cursor_sort_missing_before_int) {
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     cursor = cursor->sort(bson->data());
     CLowlaDBBson::ptr doc = cursor->next();
-    EXPECT_EQ("beta", doc->stringForKey("b"));
+    const char *sval;
+    EXPECT_TRUE(doc->stringForKey("b", &sval));
+    EXPECT_STREQ("beta", sval);
     doc = cursor->next();
     int val;
     EXPECT_TRUE(doc->intForKey("a", &val));
@@ -928,8 +940,9 @@ TEST_F(DbTestFixture, test_pull_new_document) {
     // Make sure we created the document
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
-    EXPECT_TRUE(check->containsKey("myfield"));
-    EXPECT_EQ("mystring", check->stringForKey("myfield"));
+    const char *val;
+    EXPECT_TRUE(check->stringForKey("myfield", &val));
+    EXPECT_STREQ("mystring", val);
     
     // Make sure we updated the pull data
     EXPECT_TRUE(pd->isComplete());
@@ -943,7 +956,30 @@ TEST_F(DbTestFixture, test_pull_existing_document) {
 TEST_F(DbTestFixture, test_pull_modified_document) {
     
 }
-
+/*
+TEST(Load, test_load) {
+    lowladb_db_delete("lowladb");
+    
+    std::ifstream t;
+    size_t length;
+    t.open("/Users/mark/lowla/lowladb-benchmark/client/data/no_bin_data-dump.json");      // open input file
+    t.seekg(0, std::ios::end);    // go to the end
+    length = t.tellg();           // report location (this is the length)
+    t.seekg(0, std::ios::beg);    // go back to the beginning
+    char *buffer = new char[length + 1];    // allocate memory for a buffer of appropriate dimension
+    t.read(buffer, length);       // read the whole file into the buffer
+    t.close();                    // close file handle
+    buffer[length] = '\0';
+    
+    lowladb_load_json(buffer);
+    
+    CLowlaDB::ptr db = CLowlaDB::open("lowladb");
+    CLowlaDBCollection::ptr coll = db->createCollection("no_bin_data");
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    
+    EXPECT_EQ(10000, cursor->count());
+}
+*/
 TEST_F(DbTestFixture, test_parse_syncer_response_json) {
     CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
     
@@ -1020,7 +1056,9 @@ TEST(BsonToJson, testObjectId) {
 
 TEST(JsonToBson, testString) {
     CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"mystring\" : \"myvalue\"}");
-    EXPECT_EQ("myvalue", bson->stringForKey("mystring"));
+    const char *val;
+    EXPECT_TRUE(bson->stringForKey("mystring", &val));
+    EXPECT_STREQ("myvalue", val);
 }
 
 TEST(JsonToBson, testInt) {

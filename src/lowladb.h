@@ -30,30 +30,30 @@ public:
     static CLowlaDBBson::ptr empty();
     CLowlaDBBsonImpl *pimpl();
     
-    void appendDouble(const utf16string &key, double value);
-    void appendString(const utf16string &key, const utf16string &value);
-    void appendObject(const utf16string &key, const char *value);
-    void appendOid(const utf16string &key, const void *value);
-    void appendBool(const utf16string &key, bool value);
-    void appendDate(const utf16string &key, int64_t value);
-    void appendInt(const utf16string &key, int value);
-    void appendLong(const utf16string &key, int64_t value);
+    void appendDouble(const char *key, double value);
+    void appendString(const char *key, const char *value);
+    void appendObject(const char *key, const char *value);
+    void appendOid(const char *key, const void *value);
+    void appendBool(const char *key, bool value);
+    void appendDate(const char *key, int64_t value);
+    void appendInt(const char *key, int value);
+    void appendLong(const char *key, int64_t value);
 
-    void startArray(const utf16string &key);
+    void startArray(const char *key);
     void finishArray();
-    void startObject(const utf16string &key);
+    void startObject(const char *key);
     void finishObject();
     
-    bool containsKey(const utf16string &key);
-    bool doubleForKey(const utf16string &key, double *ret);
-    utf16string stringForKey(const utf16string &key);
-    bool objectForKey(const utf16string &key, CLowlaDBBson::ptr *ret);
-    bool arrayForKey(const utf16string &key, CLowlaDBBson::ptr *ret);
-    bool oidForKey(const utf16string &key, char *ret);
-    bool boolForKey(const utf16string &key, bool *ret);
-    bool dateForKey(const utf16string &key, int64_t *ret);
-    bool intForKey(const utf16string &key, int *ret);
-    bool longForKey(const utf16string &key, int64_t *ret);
+    bool containsKey(const char *key);
+    bool doubleForKey(const char *key, double *ret);
+    bool stringForKey(const char *key, const char **ret);
+    bool objectForKey(const char *key, CLowlaDBBson::ptr *ret);
+    bool arrayForKey(const char *key, CLowlaDBBson::ptr *ret);
+    bool oidForKey(const char *key, char *ret);
+    bool boolForKey(const char *key, bool *ret);
+    bool dateForKey(const char *key, int64_t *ret);
+    bool intForKey(const char *key, int *ret);
+    bool longForKey(const char *key, int64_t *ret);
     
     const char *data();
     size_t size();
@@ -176,9 +176,11 @@ CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bson);
 CLowlaDBBson::ptr lowladb_create_push_request();
 void lowladb_apply_push_response(const char *bson);
 CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd);
-void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> response, CLowlaDBPullData::ptr pd);
+void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPullData::ptr pd);
 
 CLowlaDBBson::ptr lowladb_json_to_bson(const utf16string &json);
 utf16string lowladb_bson_to_json(const char *bson);
+
+void lowladb_load_json(const char *json);
 
 #endif
