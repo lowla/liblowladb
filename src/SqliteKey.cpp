@@ -9,15 +9,21 @@
 
 #include "SqliteKey.h"
 
-SqliteKey::SqliteKey(long pageNo) : m_pageNo(pageNo) {
+SqliteKey::SqliteKey(i64 recordId) : m_id(recordId) {
+    m_idSize = sqlite3VarintLen(m_id);
 }
 
-long SqliteKey::getPageNo() const {
-	return m_pageNo;
+i64 SqliteKey::getId() const {
+	return m_id;
 }
 
-void SqliteKey::setPageNo(long pageNo) {
-	m_pageNo = pageNo;
+void SqliteKey::setId(i64 recordId) {
+	m_id = recordId;
+    m_idSize = sqlite3VarintLen(m_id);
+}
+
+int SqliteKey::getIdSize() const {
+    return m_idSize;
 }
 
 void SqliteKey::deleteUnpackedRecord(UnpackedRecord *precord) {

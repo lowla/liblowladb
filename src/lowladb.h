@@ -26,9 +26,9 @@ public:
     
     static CLowlaDBBson::ptr create();
     static CLowlaDBBson::ptr create(const char *bson, bool ownsData);
-    static CLowlaDBBson::ptr create(std::unique_ptr<CLowlaDBBsonImpl> &pimpl);
+    static CLowlaDBBson::ptr create(std::shared_ptr<CLowlaDBBsonImpl> pimpl);
     static CLowlaDBBson::ptr empty();
-    CLowlaDBBsonImpl *pimpl();
+    std::shared_ptr<CLowlaDBBsonImpl> pimpl();
     
     void appendDouble(const char *key, double value);
     void appendString(const char *key, const char *value);
@@ -67,33 +67,33 @@ public:
     static void oidGenerate(char *buffer);
     
 private:
-    std::unique_ptr<CLowlaDBBsonImpl> m_pimpl;
+    std::shared_ptr<CLowlaDBBsonImpl> m_pimpl;
     
-    CLowlaDBBson(std::unique_ptr<CLowlaDBBsonImpl> &pimpl);
+    CLowlaDBBson(std::shared_ptr<CLowlaDBBsonImpl> pimpl);
 };
 
 class CLowlaDBWriteResult {
 public:
     typedef std::shared_ptr<CLowlaDBWriteResult> ptr;
 
-    static CLowlaDBWriteResult::ptr create(std::unique_ptr<CLowlaDBWriteResultImpl> &pimpl);
-    CLowlaDBWriteResultImpl *pimpl();
+    static CLowlaDBWriteResult::ptr create(std::shared_ptr<CLowlaDBWriteResultImpl> pimpl);
+    std::shared_ptr<CLowlaDBWriteResultImpl> pimpl();
 
     int documentCount();
     CLowlaDBBson::ptr document(int n);
     
 private:
-    std::unique_ptr<CLowlaDBWriteResultImpl> m_pimpl;
+    std::shared_ptr<CLowlaDBWriteResultImpl> m_pimpl;
     
-    CLowlaDBWriteResult(std::unique_ptr<CLowlaDBWriteResultImpl> &pimpl);
+    CLowlaDBWriteResult(std::shared_ptr<CLowlaDBWriteResultImpl> pimpl);
 };
 
 class CLowlaDBCollection {
 public:
     typedef std::shared_ptr<CLowlaDBCollection> ptr;
 
-    static CLowlaDBCollection::ptr create(std::unique_ptr<CLowlaDBCollectionImpl> &pimpl);
-    CLowlaDBCollectionImpl *pimpl();
+    static CLowlaDBCollection::ptr create(std::shared_ptr<CLowlaDBCollectionImpl> pimpl);
+    std::shared_ptr<CLowlaDBCollectionImpl> pimpl();
     
     CLowlaDBWriteResult::ptr insert(const char *bsonData);
     CLowlaDBWriteResult::ptr insert(const std::vector<const char *> &bsonData);
@@ -102,17 +102,17 @@ public:
     CLowlaDBWriteResult::ptr update(const char *queryBson, const char *objectBson, bool upsert, bool multi);
     
 private:
-    std::unique_ptr<CLowlaDBCollectionImpl> m_pimpl;
+    std::shared_ptr<CLowlaDBCollectionImpl> m_pimpl;
     
-    CLowlaDBCollection(std::unique_ptr<CLowlaDBCollectionImpl> &pimpl);
+    CLowlaDBCollection(std::shared_ptr<CLowlaDBCollectionImpl> pimpl);
 };
 
 class CLowlaDB {
 public:
     typedef std::shared_ptr<CLowlaDB> ptr;
  
-    static CLowlaDB::ptr create(std::unique_ptr<CLowlaDBImpl> &pimpl);
-    CLowlaDBImpl *pimpl();
+    static CLowlaDB::ptr create(std::shared_ptr<CLowlaDBImpl> pimpl);
+    std::shared_ptr<CLowlaDBImpl> pimpl();
     
     static CLowlaDB::ptr open(const utf16string &name);
     
@@ -120,17 +120,17 @@ public:
     void collectionNames(std::vector<utf16string> *plstNames);
     
 private:
-    std::unique_ptr<CLowlaDBImpl> m_pimpl;
+    std::shared_ptr<CLowlaDBImpl> m_pimpl;
     
-    CLowlaDB(std::unique_ptr<CLowlaDBImpl> &pimpl);
+    CLowlaDB(std::shared_ptr<CLowlaDBImpl> pimpl);
 };
 
 class CLowlaDBCursor {
 public:
     typedef std::shared_ptr<CLowlaDBCursor> ptr;
     
-    static CLowlaDBCursor::ptr create(std::unique_ptr<CLowlaDBCursorImpl> &pimpl);
-    CLowlaDBCursorImpl *pimpl();
+    static CLowlaDBCursor::ptr create(std::shared_ptr<CLowlaDBCursorImpl> pimpl);
+    std::shared_ptr<CLowlaDBCursorImpl> pimpl();
 
     static CLowlaDBCursor::ptr create(CLowlaDBCollection::ptr coll, const char *query);
     CLowlaDBCursor::ptr limit(int limit);
@@ -142,17 +142,17 @@ public:
     int64_t count();
     
 private:
-    std::unique_ptr<CLowlaDBCursorImpl> m_pimpl;
+    std::shared_ptr<CLowlaDBCursorImpl> m_pimpl;
     
-    CLowlaDBCursor(std::unique_ptr<CLowlaDBCursorImpl> &pimpl);
+    CLowlaDBCursor(std::shared_ptr<CLowlaDBCursorImpl> pimpl);
 };
 
 class CLowlaDBPullData {
 public:
     typedef std::shared_ptr<CLowlaDBPullData> ptr;
     
-    static CLowlaDBPullData::ptr create(std::unique_ptr<CLowlaDBPullDataImpl> &pimpl);
-    CLowlaDBPullDataImpl *pimpl();
+    static CLowlaDBPullData::ptr create(std::shared_ptr<CLowlaDBPullDataImpl> pimpl);
+    std::shared_ptr<CLowlaDBPullDataImpl> pimpl();
     
     bool hasRequestMore();
     utf16string getRequestMore();
@@ -161,8 +161,8 @@ public:
     int getSequenceForNextRequest();
     
 private:
-    std::unique_ptr<CLowlaDBPullDataImpl> m_pimpl;
-    CLowlaDBPullData(std::unique_ptr<CLowlaDBPullDataImpl> &pimpl);
+    std::shared_ptr<CLowlaDBPullDataImpl> m_pimpl;
+    CLowlaDBPullData(std::shared_ptr<CLowlaDBPullDataImpl> pimpl);
 };
 
 utf16string lowladb_get_version();

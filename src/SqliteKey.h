@@ -23,11 +23,16 @@ public:
 	virtual UnpackedRecord *newUnpackedRecord() = 0;
 
 	void deleteUnpackedRecord(UnpackedRecord *record);
-	long getPageNo() const;
-	void setPageNo(long pageNo);
+	i64 getId() const;
+	void setId(i64 recordId);
+    
 protected:
-	SqliteKey(long pageNo);
-	long m_pageNo;
+	SqliteKey(i64 recordId);
+    int getIdSize() const;
+
+private:
+    i64 m_id;
+    int m_idSize;
 };
 
 #endif  //_SQLITEKEY_H

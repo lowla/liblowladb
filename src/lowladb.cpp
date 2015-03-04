@@ -5,6 +5,7 @@
 #include "bson/bson.h"
 #include "integration.h"
 #include "SqliteCursor.h"
+#include "SqliteKey.h"
 #include "TeamstudioException.h"
 #include "utf16stringbuilder.h"
 #include "json/json.h"
@@ -40,15 +41,18 @@ static int createDatabase(const utf16string &filePath) {
     return rc;
 }
 
+class Tx;
 class CLowlaDBNsCache {
 public:
+    ~CLowlaDBNsCache();
     CLowlaDBCollectionImpl *collectionForNs(const char *ns);
     
 private:
-    std::map<utf16string, std::unique_ptr<CLowlaDBImpl>> m_dbCache;
-    std::map<utf16string, std::unique_ptr<CLowlaDBCollectionImpl>> m_collCache;
-    typedef std::map<utf16string, std::unique_ptr<CLowlaDBImpl>>::iterator db_iterator;
-    typedef std::map<utf16string, std::unique_ptr<CLowlaDBCollectionImpl>>::iterator coll_iterator;
+    std::map<utf16string, std::shared_ptr<CLowlaDBImpl>> m_dbCache;
+    std::vector<std::shared_ptr<Tx>> m_txCache;
+    std::map<utf16string, std::shared_ptr<CLowlaDBCollectionImpl>> m_collCache;
+    typedef std::map<utf16string, std::shared_ptr<CLowlaDBImpl>>::iterator db_iterator;
+    typedef std::map<utf16string, std::shared_ptr<CLowlaDBCollectionImpl>>::iterator coll_iterator;
 };
 
 class CLowlaDBSyncDocumentLocation {
@@ -86,12 +90,14 @@ private:
     utf16string m_requestMore;
 };
 
-class CLowlaDBImpl {
+class CLowlaDBImpl : public std::enable_shared_from_this<CLowlaDBImpl> {
 public:
+    typedef std::shared_ptr<CLowlaDBImpl> ptr;
+    
     CLowlaDBImpl(sqlite3 *pDb);
     ~CLowlaDBImpl();
     
-    std::unique_ptr<CLowlaDBCollectionImpl> createCollection(const utf16string &name);
+    std::shared_ptr<CLowlaDBCollectionImpl> createCollection(const utf16string &name);
     void collectionNames(std::vector<utf16string> *plstNames);
     
     SqliteCursor::ptr openCursor(int root);
@@ -143,7 +149,7 @@ public:
     CLowlaDBBsonImpl(const char *data, Mode ownsData);
     ~CLowlaDBBsonImpl();
     
-    static std::unique_ptr<CLowlaDBBsonImpl> empty();
+    static std::shared_ptr<CLowlaDBBsonImpl> empty();
     
     bool containsKey(const char *key);
     void appendDouble(const char *ey, double value);
@@ -180,9 +186,11 @@ public:
     void finish();
 };
 
-class CLowlaDBCollectionImpl {
+class CLowlaDBCollectionImpl : public std::enable_shared_from_this<CLowlaDBCollectionImpl> {
 public:
-    CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot);
+    typedef std::shared_ptr<CLowlaDBCollectionImpl> ptr;
+    
+    CLowlaDBCollectionImpl(CLowlaDBImpl::ptr db, const utf16string &name, int root, int logRoot, int lowlaIndexRoot);
     std::unique_ptr<CLowlaDBWriteResultImpl> insert(CLowlaDBBsonImpl *obj, const char *lowlaId);
     std::unique_ptr<CLowlaDBWriteResultImpl> insert(std::vector<CLowlaDBBsonImpl> &arr);
     std::unique_ptr<CLowlaDBWriteResultImpl> remove(CLowlaDBBsonImpl *query);
@@ -191,16 +199,21 @@ public:
     
     SqliteCursor::ptr openCursor();
     SqliteCursor::ptr openLogCursor();
-    CLowlaDBImpl *db();
+    CLowlaDBImpl::ptr db();
     bool shouldPullDocument(const CLowlaDBBsonImpl *atom);
     std::unique_ptr<CLowlaDBSyncDocumentLocation> locateDocumentForId(const char *id);
     utf16string getName();
 
+    void setWriteLog(bool writeLog);
     void updateDocument(SqliteCursor *cursor, int64_t id, CLowlaDBBsonImpl *obj, CLowlaDBBsonImpl *oldObj, CLowlaDBBsonImpl *oldMeta);
 
 private:
     bool isReplaceObject(CLowlaDBBsonImpl *update);
     std::unique_ptr<CLowlaDBBsonImpl> applyUpdate(CLowlaDBBsonImpl *update, CLowlaDBBsonImpl *original);
+
+    void registerLowlaId(const char *lowlaId, i64 id);
+    i64 locateLowlaId(const char *lowlaId);
+    void forgetLowlaId(const char *lowlaId);
     
     enum {
         LOGTYPE_INSERT = 1,
@@ -208,10 +221,12 @@ private:
         LOGTYPE_REMOVE
     };
     
-    CLowlaDBImpl *m_db;
+    CLowlaDBImpl::ptr m_db;
     int m_root;
     int m_logRoot;
+    int m_lowlaIndexRoot;
     utf16string m_name;
+    bool m_writeLog;
 };
 
 static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name);
@@ -235,7 +250,7 @@ private:
 
 class CLowlaDBCursorImpl {
 public:
-    CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys);
+    CLowlaDBCursorImpl(CLowlaDBCollectionImpl::ptr coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys);
     CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other);
     
     std::unique_ptr<CLowlaDBCursorImpl> limit(int limit);
@@ -262,11 +277,11 @@ private:
     std::shared_ptr<CLowlaDBBsonImpl> createSortKey(CLowlaDBBsonImpl *found);
     
     // The cursor has to come after the tx so that it is destructed (closed) before we end the tx
+    CLowlaDBCollectionImpl::ptr m_coll;
     std::unique_ptr<Tx> m_tx;
     SqliteCursor::ptr m_cursor;
     SqliteCursor::ptr m_logCursor;
     
-    CLowlaDBCollectionImpl *m_coll;
     std::shared_ptr<CLowlaDBBsonImpl> m_query;
     std::shared_ptr<CLowlaDBBsonImpl> m_keys;
     std::shared_ptr<CLowlaDBBsonImpl> m_sort;
@@ -281,6 +296,12 @@ private:
     bool m_showPending;
     bool m_showDiskLoc;
 };
+
+CLowlaDBNsCache::~CLowlaDBNsCache() {
+    for (std::shared_ptr<Tx> const &tx : m_txCache) {
+        tx->commit();
+    }
+}
 
 CLowlaDBCollectionImpl *CLowlaDBNsCache::collectionForNs(const char *ns) {
     utf16string strNs(ns);
@@ -298,6 +319,7 @@ CLowlaDBCollectionImpl *CLowlaDBNsCache::collectionForNs(const char *ns) {
     if (dbIt == m_dbCache.end()) {
         m_dbCache[strDb] = lowla_db_open(strDb);
         dbIt = m_dbCache.find(strDb);
+        m_txCache.push_back(std::shared_ptr<Tx>(new Tx(dbIt->second->btree(), false)));
     }
     CLowlaDBImpl *db = dbIt->second.get();
     m_collCache[strNs] = db->createCollection(coll);
@@ -369,11 +391,78 @@ void Tx::detach()
     }
 }
 
-CLowlaDB::ptr CLowlaDB::create(std::unique_ptr<CLowlaDBImpl> &pimpl) {
+CLowlaDB::ptr CLowlaDB::create(std::shared_ptr<CLowlaDBImpl> pimpl) {
     return CLowlaDB::ptr(new CLowlaDB(pimpl));
 }
 
-CLowlaDB::CLowlaDB(std::unique_ptr<CLowlaDBImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
+CLowlaDB::CLowlaDB(std::shared_ptr<CLowlaDBImpl> pimpl) : m_pimpl(pimpl) {
+}
+
+class LowlaIdKey : public SqliteKey {
+public:
+    static KeyInfo *getKeyInfo();
+    static int compare(void *pUser, int n1, const void *key1, int n2, const void *key2);
+    
+    LowlaIdKey(const char *lowlaId, i64 recordId);
+
+    int getSize() const;
+    int writeToPointer(unsigned char *pc);
+    UnpackedRecord *newUnpackedRecord();
+    
+private:
+    const char *m_pszKey;
+    int m_cb;
+};
+
+LowlaIdKey::LowlaIdKey(const char *lowlaId, i64 recordId) : SqliteKey(recordId) {
+    m_pszKey = lowlaId;
+    m_cb = (int)strlen(m_pszKey);
+}
+
+KeyInfo *LowlaIdKey::getKeyInfo() {
+    static KeyInfo keyInfo;
+    static CollSeq collSec;
+    keyInfo.nField = 1;
+    keyInfo.aColl[0] = &collSec;
+    collSec.xCmp = LowlaIdKey::compare;
+    return &keyInfo;
+}
+
+int LowlaIdKey::compare(void *pUser, int n1, const void *key1, int n2, const void *key2) {
+    UnpackedRecord *record = (UnpackedRecord*)pUser;
+    int answer = n1 - n2;
+    if (0 == answer) {
+        answer = strcmp((const char *)key1, (const char *)key2);
+    }
+    if (0 == answer) {
+        size_t cb = strlen((const char *)key1);
+        sqlite3GetVarint((const unsigned char *)key1 + cb + 1, (u64*)&record->rowid);
+    }
+    return answer;
+}
+
+int LowlaIdKey::getSize() const {
+    return m_cb + 1 + getIdSize();
+}
+
+int LowlaIdKey::writeToPointer(unsigned char *pc) {
+    memcpy(pc, m_pszKey, m_cb);
+    pc[m_cb] = '\0';
+    sqlite3PutVarint(pc + m_cb + 1, getId());
+    return getSize();
+}
+
+UnpackedRecord* LowlaIdKey::newUnpackedRecord() {
+    UnpackedRecord* answer = (UnpackedRecord*)sqlite3_malloc(sizeof(UnpackedRecord) + sizeof(Mem) + getSize());
+    answer->flags = UNPACKED_NEED_FREE;
+    answer->nField = 1;
+    answer->pKeyInfo = LowlaIdKey::getKeyInfo();
+    answer->aMem = (Mem*)(answer + 1);
+    answer->aMem->flags = 0;
+    answer->aMem->n = getSize();
+    answer->aMem->zMalloc = (char *)(answer->aMem + 1);
+    writeToPointer((unsigned char*)answer->aMem->zMalloc);
+    return answer;
 }
 
 CLowlaDBImpl::CLowlaDBImpl(sqlite3 *pDb) : m_pDb(pDb) {
@@ -409,7 +498,7 @@ static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name) {
 }
 
 CLowlaDB::ptr CLowlaDB::open(const utf16string &name) {
-    std::unique_ptr<CLowlaDBImpl> pimpl = lowla_db_open(name);
+    std::shared_ptr<CLowlaDBImpl> pimpl = lowla_db_open(name);
     if (pimpl) {
         return CLowlaDB::create(pimpl);
     }
@@ -417,7 +506,7 @@ CLowlaDB::ptr CLowlaDB::open(const utf16string &name) {
 }
 
 CLowlaDBCollection::ptr CLowlaDB::createCollection(const utf16string &name) {
-    std::unique_ptr<CLowlaDBCollectionImpl> pimpl = m_pimpl->createCollection(name);
+    std::shared_ptr<CLowlaDBCollectionImpl> pimpl = m_pimpl->createCollection(name);
     return CLowlaDBCollection::create(pimpl);
 }
 
@@ -425,7 +514,7 @@ void CLowlaDB::collectionNames(std::vector<utf16string> *plstNames) {
     m_pimpl->collectionNames(plstNames);
 }
 
-std::unique_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf16string &name) {
+std::shared_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf16string &name) {
     SqliteCursor headerCursor;
     Btree *pBt = m_pDb->aDb[0].pBt;
     
@@ -464,11 +553,16 @@ std::unique_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf
             if (BSON_INT == type) {
                 collLogRoot = bson_iterator_int(it);
             }
+            int lowlaIndexRoot = -1;
+            type = bson_find(it, data, "lowlaIndexRoot");
+            if (BSON_INT == type) {
+                lowlaIndexRoot = bson_iterator_int(it);
+            }
             bson_destroy(data);
             
             if (0 == strcmp(collName, foundName) && -1 != collRoot && -1 != collLogRoot) {
                 headerCursor.close();
-                return std::unique_ptr<CLowlaDBCollectionImpl>(new CLowlaDBCollectionImpl(this, name, collRoot, collLogRoot));
+                return std::make_shared<CLowlaDBCollectionImpl>(shared_from_this(), name, collRoot, collLogRoot, lowlaIndexRoot);
             }
             headerCursor.next(&res);
         }
@@ -483,6 +577,11 @@ std::unique_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf
     if (SQLITE_OK != rc) {
         return nullptr;
     }
+    int lowlaIndexRoot = 0;
+    rc = sqlite3BtreeCreateTable(pBt, &lowlaIndexRoot, BTREE_ZERODATA);
+    if (SQLITE_OK != rc) {
+        return nullptr;
+    }
     
     bson data[1];
     bson_init(data);
@@ -490,6 +589,7 @@ std::unique_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf
     bson_append_string(data, "collName", collName);
     bson_append_int(data, "collRoot", collRoot);
     bson_append_int(data, "collLogRoot", collLogRoot);
+    bson_append_int(data, "lowlaIndexRoot", lowlaIndexRoot);
     bson_finish(data);
     
     rc = headerCursor.last(&res);
@@ -504,7 +604,7 @@ std::unique_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf
     bson_destroy(data);
 
     tx.commit();
-    return std::unique_ptr<CLowlaDBCollectionImpl>(new CLowlaDBCollectionImpl(this, name, collRoot, collLogRoot));
+    return std::make_shared<CLowlaDBCollectionImpl>(shared_from_this(), name, collRoot, collLogRoot, lowlaIndexRoot);
 }
 
 void CLowlaDBImpl::collectionNames(std::vector<utf16string> *plstNames) {
@@ -548,20 +648,20 @@ SqliteCursor::ptr CLowlaDBImpl::openCursor(int root) {
     return answer;
 }
 
-CLowlaDBCollection::ptr CLowlaDBCollection::create(std::unique_ptr<CLowlaDBCollectionImpl> &pimpl) {
+CLowlaDBCollection::ptr CLowlaDBCollection::create(std::shared_ptr<CLowlaDBCollectionImpl> pimpl) {
     return CLowlaDBCollection::ptr(new CLowlaDBCollection(pimpl));
 }
 
-CLowlaDBCollectionImpl *CLowlaDBCollection::pimpl() {
-    return m_pimpl.get();
+std::shared_ptr<CLowlaDBCollectionImpl> CLowlaDBCollection::pimpl() {
+    return m_pimpl;
 }
 
-CLowlaDBCollection::CLowlaDBCollection(std::unique_ptr<CLowlaDBCollectionImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
+CLowlaDBCollection::CLowlaDBCollection(std::shared_ptr<CLowlaDBCollectionImpl> pimpl) : m_pimpl(pimpl) {
 }
 
 CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const char *bsonData) {
     CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
-    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(&bson, "");
+    std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(&bson, "");
     return CLowlaDBWriteResult::create(pimpl);
 }
 
@@ -570,32 +670,32 @@ CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const std::vector<const char
     for (const char *bson : bsonData) {
         bsonArr.emplace_back(bson, CLowlaDBBsonImpl::REF);
     }
-    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(bsonArr);
+    std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(bsonArr);
     return CLowlaDBWriteResult::create(pimpl);
 }
 
 CLowlaDBWriteResult::ptr CLowlaDBCollection::remove(const char *queryBson) {
     if (queryBson) {
         CLowlaDBBsonImpl query(queryBson, CLowlaDBBsonImpl::REF);
-        std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->remove(&query);
+        std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->remove(&query);
         return CLowlaDBWriteResult::create(pimpl);
     }
     else {
-        std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->remove(nullptr);
+        std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->remove(nullptr);
         return CLowlaDBWriteResult::create(pimpl);
     }
 }
 
 CLowlaDBWriteResult::ptr CLowlaDBCollection::save(const char *bsonData) {
     CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
-    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->save(&bson);
+    std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->save(&bson);
     return CLowlaDBWriteResult::create(pimpl);
 }
 
 CLowlaDBWriteResult::ptr CLowlaDBCollection::update(const char *queryBson, const char *objectBson, bool upsert, bool multi) {
     CLowlaDBBsonImpl query(queryBson, CLowlaDBBsonImpl::REF);
     CLowlaDBBsonImpl object(objectBson, CLowlaDBBsonImpl::REF);
-    std::unique_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->update(&query, &object, upsert, multi);
+    std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->update(&query, &object, upsert, multi);
     return CLowlaDBWriteResult::create(pimpl);
 }
 
@@ -616,7 +716,7 @@ static utf16string generateLowlaId(CLowlaDBCollectionImpl *coll, CLowlaDBBsonImp
     }
 }
 
-CLowlaDBCollectionImpl::CLowlaDBCollectionImpl(CLowlaDBImpl *db, const utf16string &name, int root, int logRoot) : m_db(db), m_name(name), m_root(root), m_logRoot(logRoot) {
+CLowlaDBCollectionImpl::CLowlaDBCollectionImpl(CLowlaDBImpl::ptr db, const utf16string &name, int root, int logRoot, int lowlaIndexRoot) : m_db(db), m_name(name), m_root(root), m_logRoot(logRoot), m_lowlaIndexRoot(lowlaIndexRoot), m_writeLog(true) {
 }
 
 static void throwIfDocumentInvalidForInsertion(bson const *obj) {
@@ -702,13 +802,17 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDB
         meta.appendString("id", generateLowlaId(this, obj).c_str());
     }
     meta.finish();
+    meta.stringForKey("id", &lowlaId);
     rc = cursor->insert(NULL, newId, obj->data(), (int)obj->size(), (int)meta.size(), true, 0);
     if (SQLITE_OK == rc) {
         rc = cursor->movetoUnpacked(nullptr, newId, 0, &res);
         cursor->putData((int)obj->size(), (int)meta.size(), meta.data());
-        SqliteCursor::ptr logCursor = m_db->openCursor(m_logRoot);
-        static char logData[] = {0, 0, 0, 0, LOGTYPE_INSERT};
-        rc = logCursor->insert(NULL, newId, logData, sizeof(logData), 0, true, 0);
+        if (m_writeLog) {
+            SqliteCursor::ptr logCursor = m_db->openCursor(m_logRoot);
+            static char logData[] = {0, 0, 0, 0, LOGTYPE_INSERT};
+            rc = logCursor->insert(NULL, newId, logData, sizeof(logData), 0, true, 0);
+        }
+        registerLowlaId(lowlaId, newId);
     }
     if (obj->ownsData) {
         obj->ownsData = false;
@@ -758,12 +862,17 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vec
         CLowlaDBBsonImpl meta;
         meta.appendString("id", generateLowlaId(this, obj).c_str());
         meta.finish();
+        const char *lowlaId;
+        meta.stringForKey("id", &lowlaId);
         rc = cursor->insert(NULL, newId, obj->data(), (int)obj->size(), (int)meta.size(), true, 0);
         if (SQLITE_OK == rc) {
             rc = cursor->movetoUnpacked(nullptr, newId, 0, &res);
             cursor->putData((int)obj->size(), (int)meta.size(), meta.data());
             static char logData[] = {0, 0, 0, 0, LOGTYPE_INSERT};
-            rc = logCursor->insert(NULL, newId, logData, sizeof(logData), 0, true, 0);
+            if (m_writeLog) {
+                rc = logCursor->insert(NULL, newId, logData, sizeof(logData), 0, true, 0);
+            }
+            registerLowlaId(lowlaId, newId);
         }
         if (obj->ownsData) {
             obj->ownsData = false;
@@ -789,7 +898,8 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::remove(CLowlaDB
     if (query) {
         cursorQuery.reset(new CLowlaDBBsonImpl(query->data(), CLowlaDBBsonImpl::REF));
     }
-    std::unique_ptr<CLowlaDBCursorImpl> cursor(new CLowlaDBCursorImpl(this, cursorQuery, nullptr));
+    
+    auto cursor = std::make_shared<CLowlaDBCursorImpl>(shared_from_this(), cursorQuery, nullptr);
 
     std::vector<int64_t> idsToDelete;
     
@@ -808,7 +918,10 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::remove(CLowlaDB
         int rc, res;
         rc = cursor->sqliteCursor()->movetoUnpacked(nullptr, id, 0, &res);
         if (SQLITE_OK == rc && 0 == res) {
+            const char *lowlaId;
+            cursor->currentMeta()->stringForKey("id", &lowlaId);
             cursor->sqliteCursor()->deleteCurrent();
+            forgetLowlaId(lowlaId);
         }
     }
 
@@ -839,7 +952,7 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::update(CLowlaDB
 
     // The cursor needs a shared_ptr so we create a new ClowlaDBBsonImpl using the incoming data
     std::shared_ptr<CLowlaDBBsonImpl> cursorQuery(new CLowlaDBBsonImpl(query->data(), CLowlaDBBsonImpl::REF));
-    std::unique_ptr<CLowlaDBCursorImpl> cursor(new CLowlaDBCursorImpl(this, cursorQuery, nullptr));
+    auto cursor = std::make_shared<CLowlaDBCursorImpl>(shared_from_this(), cursorQuery, nullptr);
     if (!multi) {
         cursor = cursor->limit(1);
     }
@@ -877,8 +990,8 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCollectionImpl::applyUpdate(CLowlaDBBs
     }
     else {
         const char *tmp;
-        std::unique_ptr<CLowlaDBBsonImpl> set;
-        std::unique_ptr<CLowlaDBBsonImpl> unset;
+        std::shared_ptr<CLowlaDBBsonImpl> set;
+        std::shared_ptr<CLowlaDBBsonImpl> unset;
         if (update->objectForKey("$set", &tmp)) {
             set.reset(new CLowlaDBBsonImpl(tmp, CLowlaDBBsonImpl::REF));
         }
@@ -929,7 +1042,7 @@ void CLowlaDBCollectionImpl::updateDocument(SqliteCursor *cursor, int64_t id, CL
             rc = cursor->putData((int)obj->size(), (int)oldMeta->size(), oldMeta->data());
         }
     }
-    if (SQLITE_OK == rc) {
+    if (SQLITE_OK == rc && m_writeLog) {
         SqliteCursor::ptr logCursor = m_db->openCursor(m_logRoot);
         rc = logCursor->movetoUnpacked(nullptr, id, 0, &res);
         if (SQLITE_OK == rc && 0 != res) {
@@ -959,12 +1072,74 @@ SqliteCursor::ptr CLowlaDBCollectionImpl::openLogCursor() {
     return m_db->openCursor(m_logRoot);
 }
 
+void CLowlaDBCollectionImpl::registerLowlaId(const char *lowlaId, i64 id) {
+    Btree *pBt = m_db->btree();
+    
+    Tx tx(pBt);
+    
+    SqliteCursor lowlaCursor;
+    lowlaCursor.create(pBt, m_lowlaIndexRoot, CURSOR_READWRITE, LowlaIdKey::getKeyInfo());
+    
+    LowlaIdKey key(lowlaId, id);
+    int keySize = key.getSize();
+    std::vector<unsigned char> ac(keySize);
+    key.writeToPointer(&ac[0]);
+    lowlaCursor.insert(&ac[0], keySize, nullptr, 0, 0, false, 0);
+    
+    lowlaCursor.close();
+    
+    tx.commit();
+}
+
+i64 CLowlaDBCollectionImpl::locateLowlaId(const char *lowlaId) {
+    Btree *pBt = m_db->btree();
+    
+    Tx tx(pBt);
+    
+    SqliteCursor lowlaCursor;
+    lowlaCursor.create(pBt, m_lowlaIndexRoot, CURSOR_READWRITE, LowlaIdKey::getKeyInfo());
+    
+    LowlaIdKey key(lowlaId, 0);
+    UnpackedRecord* precord = key.newUnpackedRecord();
+    int rc, res;
+    rc = lowlaCursor.movetoUnpacked(precord, 0, 0, &res);
+    i64 answer = 0;
+    if (0 == res) {
+        answer = precord->rowid;
+    }
+    key.deleteUnpackedRecord(precord);
+    lowlaCursor.close();
+    
+    tx.commit();
+    
+    return answer;
+}
+
+void CLowlaDBCollectionImpl::forgetLowlaId(const char *lowlaId) {
+    Btree *pBt = m_db->btree();
+    
+    Tx tx(pBt);
+    
+    SqliteCursor lowlaCursor;
+    lowlaCursor.create(pBt, m_lowlaIndexRoot, CURSOR_READWRITE, LowlaIdKey::getKeyInfo());
+    
+    LowlaIdKey key(lowlaId, 0);
+    lowlaCursor.deleteKey(&key);
+    lowlaCursor.close();
+    
+    tx.commit();
+}
+
 utf16string CLowlaDBCollectionImpl::getName() {
     return m_name;
 }
 
-CLowlaDBImpl *CLowlaDBCollectionImpl::db() {
+CLowlaDBImpl::ptr CLowlaDBCollectionImpl::db() {
     return m_db;
+}
+
+void CLowlaDBCollectionImpl::setWriteLog(bool writeLog) {
+    m_writeLog = writeLog;
 }
 
 std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocumentForId(const char *id) {
@@ -972,11 +1147,18 @@ std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocu
 
     // Locate the document by its lowla key
     Tx tx(db()->btree());
+
+    answer->m_logFound = false;
+    answer->m_sqliteId = locateLowlaId(id);
+    if (0 == answer->m_sqliteId) {
+        return answer;
+    }
+    
     SqliteCursor::ptr cursor = openCursor();
     answer->m_cursor = cursor;
     int res;
-    int rc = cursor->first(&res);
-    while (SQLITE_OK == rc && 0 ==res) {
+    int rc = cursor->movetoUnpacked(nullptr, answer->m_sqliteId, false, &res);
+    if (SQLITE_OK == rc && 0 ==res) {
         u32 dataSize;
         cursor->dataSize(&dataSize);
         int objSize = 0;
@@ -1004,9 +1186,8 @@ std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocu
             answer->m_logFound = (SQLITE_OK == rcLog && 0 == resLog);
             return answer;
         }
-        rc = cursor->next(&res);
+        throw TeamstudioException("Internal error: lowlaId mismatch");
     }
-    answer->m_logFound = false;
     return answer;
 }
 
@@ -1045,7 +1226,7 @@ bool CLowlaDBCollectionImpl::shouldPullDocument(const CLowlaDBBsonImpl *atom) {
     return true;
 }
 
-CLowlaDBWriteResult::ptr CLowlaDBWriteResult::create(std::unique_ptr<CLowlaDBWriteResultImpl> &pimpl) {
+CLowlaDBWriteResult::ptr CLowlaDBWriteResult::create(std::shared_ptr<CLowlaDBWriteResultImpl> pimpl) {
     return CLowlaDBWriteResult::ptr(new CLowlaDBWriteResult(pimpl));
 }
 
@@ -1057,7 +1238,7 @@ CLowlaDBBson::ptr CLowlaDBWriteResult::document(int n) {
     return CLowlaDBBson::create(m_pimpl->getDocument(n), false);
 }
 
-CLowlaDBWriteResult::CLowlaDBWriteResult(std::unique_ptr<CLowlaDBWriteResultImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
+CLowlaDBWriteResult::CLowlaDBWriteResult(std::shared_ptr<CLowlaDBWriteResultImpl> pimpl) : m_pimpl(pimpl) {
 }
 
 CLowlaDBWriteResultImpl::CLowlaDBWriteResultImpl() : m_count(0) {
@@ -1086,11 +1267,10 @@ const size_t CLowlaDBBson::OID_SIZE = sizeof(bson_oid_t);
 const size_t CLowlaDBBson::OID_STRING_SIZE = 2 * OID_SIZE + 1;
 
 CLowlaDBBson::ptr CLowlaDBBson::create() {
-    std::unique_ptr<CLowlaDBBsonImpl> pimpl(new CLowlaDBBsonImpl);
-    return CLowlaDBBson::ptr(new CLowlaDBBson(pimpl));
+    return CLowlaDBBson::ptr(new CLowlaDBBson(std::make_shared<CLowlaDBBsonImpl>()));
 }
 
-CLowlaDBBson::ptr CLowlaDBBson::create(std::unique_ptr<CLowlaDBBsonImpl> &pimpl) {
+CLowlaDBBson::ptr CLowlaDBBson::create(std::shared_ptr<CLowlaDBBsonImpl> pimpl) {
     if (pimpl) {
         return CLowlaDBBson::ptr(new CLowlaDBBson(pimpl));
     }
@@ -1101,18 +1281,15 @@ CLowlaDBBson::ptr CLowlaDBBson::create(std::unique_ptr<CLowlaDBBsonImpl> &pimpl)
 
 CLowlaDBBson::ptr CLowlaDBBson::create(const char *bson, bool ownsData) {
     CLowlaDBBsonImpl::Mode mode = ownsData ? CLowlaDBBsonImpl::OWN : CLowlaDBBsonImpl::REF;
-    std::unique_ptr<CLowlaDBBsonImpl> pimpl(new CLowlaDBBsonImpl(bson, mode));
-    return CLowlaDBBson::ptr(new CLowlaDBBson(pimpl));
+    return CLowlaDBBson::ptr(new CLowlaDBBson(std::make_shared<CLowlaDBBsonImpl>(bson, mode)));
 }
 
 CLowlaDBBson::ptr CLowlaDBBson::empty() {
-    std::unique_ptr<CLowlaDBBsonImpl> pimpl(CLowlaDBBsonImpl::empty());
-
-    return CLowlaDBBson::ptr(new CLowlaDBBson(pimpl));
+    return CLowlaDBBson::ptr(new CLowlaDBBson(CLowlaDBBsonImpl::empty()));
 }
 
-CLowlaDBBsonImpl *CLowlaDBBson::pimpl() {
-    return m_pimpl.get();
+std::shared_ptr<CLowlaDBBsonImpl> CLowlaDBBson::pimpl() {
+    return m_pimpl;
 }
 
 void CLowlaDBBson::appendDouble(const char *key, double value) {
@@ -1237,7 +1414,7 @@ size_t CLowlaDBBson::size() {
     return m_pimpl->size();
 }
 
-CLowlaDBBson::CLowlaDBBson(std::unique_ptr<CLowlaDBBsonImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
+CLowlaDBBson::CLowlaDBBson(std::shared_ptr<CLowlaDBBsonImpl> pimpl) : m_pimpl(pimpl) {
 }
                                                                            
 CLowlaDBBsonImpl::CLowlaDBBsonImpl() {
@@ -1262,8 +1439,8 @@ CLowlaDBBsonImpl::~CLowlaDBBsonImpl() {
     bson_destroy(this);
 }
 
-std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBBsonImpl::empty() {
-    std::unique_ptr<CLowlaDBBsonImpl> answer = std::unique_ptr<CLowlaDBBsonImpl>(new CLowlaDBBsonImpl);
+std::shared_ptr<CLowlaDBBsonImpl> CLowlaDBBsonImpl::empty() {
+    std::shared_ptr<CLowlaDBBsonImpl> answer = std::make_shared<CLowlaDBBsonImpl>();
     answer->finish();
     return answer;
 }
@@ -1462,12 +1639,12 @@ const char *CLowlaDBBsonImpl::valueForKey(const char *key, long *count) {
     return answer;
 }
 
-CLowlaDBCursor::ptr CLowlaDBCursor::create(std::unique_ptr<CLowlaDBCursorImpl> &pimpl) {
+CLowlaDBCursor::ptr CLowlaDBCursor::create(std::shared_ptr<CLowlaDBCursorImpl> pimpl) {
     return CLowlaDBCursor::ptr(new CLowlaDBCursor(pimpl));
 }
 
-CLowlaDBCursorImpl *CLowlaDBCursor::pimpl() {
-    return m_pimpl.get();
+std::shared_ptr<CLowlaDBCursorImpl> CLowlaDBCursor::pimpl() {
+    return m_pimpl;
 }
 
 CLowlaDBCursor::ptr CLowlaDBCursor::create(CLowlaDBCollection::ptr coll, const char *query) {
@@ -1477,34 +1654,34 @@ CLowlaDBCursor::ptr CLowlaDBCursor::create(CLowlaDBCollection::ptr coll, const c
         bsonQuery.reset(new CLowlaDBBsonImpl(query, CLowlaDBBsonImpl::COPY));
     }
     
-    std::unique_ptr<CLowlaDBCursorImpl> pimpl(new CLowlaDBCursorImpl(coll->pimpl(), bsonQuery, std::shared_ptr<CLowlaDBBsonImpl>()));
-    return create(pimpl);
+//    std::shared_ptr<CLowlaDBCursorImpl> pimpl(new CLowlaDBCursorImpl(coll->pimpl(), bsonQuery, std::shared_ptr<CLowlaDBBsonImpl>()));
+    return create(std::make_shared<CLowlaDBCursorImpl>(coll->pimpl(), bsonQuery, std::shared_ptr<CLowlaDBBsonImpl>()));
 }
 
 CLowlaDBCursor::ptr CLowlaDBCursor::limit(int limit) {
-    std::unique_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->limit(limit);
+    std::shared_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->limit(limit);
     return create(pimpl);
 }
 
 CLowlaDBCursor::ptr CLowlaDBCursor::skip(int skip) {
-    std::unique_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->skip(skip);
+    std::shared_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->skip(skip);
     return create(pimpl);
 }
 
 CLowlaDBCursor::ptr CLowlaDBCursor::sort(const char *sort) {
     std::shared_ptr<CLowlaDBBsonImpl> bsonSort(new CLowlaDBBsonImpl(sort, CLowlaDBBsonImpl::COPY));
 
-    std::unique_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->sort(bsonSort);
+    std::shared_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->sort(bsonSort);
     return create(pimpl);
 }
 
 CLowlaDBCursor::ptr CLowlaDBCursor::showPending() {
-    std::unique_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->showPending();
+    std::shared_ptr<CLowlaDBCursorImpl> pimpl = m_pimpl->showPending();
     return create(pimpl);
 }
 
 CLowlaDBBson::ptr CLowlaDBCursor::next() {
-    std::unique_ptr<CLowlaDBBsonImpl> answer = m_pimpl->next();
+    std::shared_ptr<CLowlaDBBsonImpl> answer = m_pimpl->next();
     return CLowlaDBBson::create(answer);
 }
 
@@ -1512,13 +1689,13 @@ int64_t CLowlaDBCursor::count() {
     return m_pimpl->count();
 }
 
-CLowlaDBCursor::CLowlaDBCursor(std::unique_ptr<CLowlaDBCursorImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
+CLowlaDBCursor::CLowlaDBCursor(std::shared_ptr<CLowlaDBCursorImpl> pimpl) : m_pimpl(pimpl) {
 }
 
 CLowlaDBCursorImpl::CLowlaDBCursorImpl(const CLowlaDBCursorImpl &other) : m_coll(other.m_coll), m_query(other.m_query), m_keys(other.m_keys), m_sort(other.m_sort), m_limit(other.m_limit), m_skip(other.m_skip), m_showPending(other.m_showPending), m_showDiskLoc(other.m_showDiskLoc) {
 }
 
-CLowlaDBCursorImpl::CLowlaDBCursorImpl(CLowlaDBCollectionImpl *coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys) : m_coll(coll), m_query(query), m_keys(keys), m_limit(0), m_skip(0), m_showPending(false), m_showDiskLoc(false) {
+CLowlaDBCursorImpl::CLowlaDBCursorImpl(CLowlaDBCollectionImpl::ptr coll, std::shared_ptr<CLowlaDBBsonImpl> query, std::shared_ptr<CLowlaDBBsonImpl> keys) : m_coll(coll), m_query(query), m_keys(keys), m_limit(0), m_skip(0), m_showPending(false), m_showDiskLoc(false) {
 }
 
 std::unique_ptr<CLowlaDBCursorImpl> CLowlaDBCursorImpl::limit(int limit) {
@@ -2024,15 +2201,15 @@ void CLowlaDBSyncManagerImpl::runWriteCallback() {
     }
 }
 
-CLowlaDBPullData::ptr CLowlaDBPullData::create(std::unique_ptr<CLowlaDBPullDataImpl> &pimpl) {
+CLowlaDBPullData::ptr CLowlaDBPullData::create(std::shared_ptr<CLowlaDBPullDataImpl> pimpl) {
     return CLowlaDBPullData::ptr(new CLowlaDBPullData(pimpl));
 }
 
-CLowlaDBPullDataImpl *CLowlaDBPullData::pimpl() {
-    return m_pimpl.get();
+std::shared_ptr<CLowlaDBPullDataImpl> CLowlaDBPullData::pimpl() {
+    return m_pimpl;
 }
 
-CLowlaDBPullData::CLowlaDBPullData(std::unique_ptr<CLowlaDBPullDataImpl> &pimpl) : m_pimpl(std::move(pimpl)) {
+CLowlaDBPullData::CLowlaDBPullData(std::shared_ptr<CLowlaDBPullDataImpl> pimpl) : m_pimpl(pimpl) {
 }
 
 bool CLowlaDBPullData::hasRequestMore() {
@@ -2121,7 +2298,7 @@ void lowladb_db_delete(const utf16string &name) {
 
 CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bsonData) {
     CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
-    std::unique_ptr<CLowlaDBPullDataImpl> pd(new CLowlaDBPullDataImpl);
+    std::shared_ptr<CLowlaDBPullDataImpl> pd(new CLowlaDBPullDataImpl);
     int sequence;
     if (bson.intForKey("sequence", &sequence)) {
         pd->setSequence(sequence);
@@ -2157,9 +2334,9 @@ static bool shouldPullDocument(const CLowlaDBBsonImpl &atom, CLowlaDBNsCache &ca
 }
 
 CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
-    CLowlaDBPullDataImpl *pullData = pd->pimpl();
+    std::shared_ptr<CLowlaDBPullDataImpl> pullData = pd->pimpl();
     CLowlaDBNsCache cacheNs;
-    std::unique_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl);
+    std::shared_ptr<CLowlaDBBsonImpl> answer(new CLowlaDBBsonImpl);
     if (pullData->hasRequestMore()) {
         answer->appendString("requestMore", pullData->getRequestMore().c_str());
         answer->finish();
@@ -2214,11 +2391,11 @@ void processLeadingDeletions(CLowlaDBPullDataImpl *pullData, CLowlaDBNsCache &ca
 }
 
 void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPullData::ptr pd) {
-    CLowlaDBPullDataImpl *pullData = pd->pimpl();
+    std::shared_ptr<CLowlaDBPullDataImpl> pullData = pd->pimpl();
     CLowlaDBNsCache cache;
     int i = 0;
     while (i < response.size()) {
-        processLeadingDeletions(pullData, cache);
+        processLeadingDeletions(pullData.get(), cache);
         CLowlaDBBson::ptr metaBson = response[i];
         const char *requestMore;
         if (metaBson->stringForKey("requestMore", &requestMore)) {
@@ -2242,6 +2419,7 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response,
             ++i;
             continue;
         }
+        coll->setWriteLog(false);
         Tx tx(coll->db()->btree());
         const char *id;
         metaBson->stringForKey("id", &id);
@@ -2259,19 +2437,21 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response,
         else {
             CLowlaDBBson::ptr dataBson = response[i];
             if (loc->m_found) {
-                coll->updateDocument(loc->m_cursor.get(), loc->m_sqliteId, dataBson->pimpl(), loc->m_found.get(), loc->m_foundMeta.get());
+                coll->updateDocument(loc->m_cursor.get(), loc->m_sqliteId, dataBson->pimpl().get(), loc->m_found.get(), loc->m_foundMeta.get());
             }
             else {
-                coll->insert(dataBson->pimpl(), id);
+                coll->insert(dataBson->pimpl().get(), id);
             }
         }
-        loc->m_cursor->close();
+        if (loc->m_cursor) {
+            loc->m_cursor->close();
+        }
         tx.commit();
         // Clear the id from the todo list
         pullData->eraseAtom(id);
         ++i;
     }
-    processLeadingDeletions(pullData, cache);
+    processLeadingDeletions(pullData.get(), cache);
 }
 
 static void bson_to_json_value(const char *bsonData, Json::Value *value) {
@@ -2402,7 +2582,7 @@ static void appendJsonValueToBson(CLowlaDBBsonImpl *bson, const char *key, const
 static CLowlaDBBson::ptr jsonValue_to_bson(const Json::Value &value) {
     CLowlaDBBson::ptr answer = CLowlaDBBson::create();
     for (Json::Value::iterator it = value.begin() ; it != value.end() ; ++it) {
-        appendJsonValueToBson(answer->pimpl(), it.memberName(), *it);
+        appendJsonValueToBson(answer->pimpl().get(), it.memberName(), *it);
     }
     answer->finish();
     return answer;
