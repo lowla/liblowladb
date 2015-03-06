@@ -169,9 +169,6 @@ utf16string lowladb_get_version();
 void lowladb_list_databases(std::vector<utf16string> *plstdb);
 void lowladb_db_delete(const utf16string &name);
 
-typedef void (*LowlaDBWriteCallback)();
-void lowladb_set_write_callback(LowlaDBWriteCallback wbc);
-
 CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bson);
 CLowlaDBBson::ptr lowladb_create_push_request();
 void lowladb_apply_push_response(const char *bson);
@@ -182,5 +179,10 @@ CLowlaDBBson::ptr lowladb_json_to_bson(const utf16string &json);
 utf16string lowladb_bson_to_json(const char *bson);
 
 void lowladb_load_json(const char *json);
+
+typedef void (*LowlaDbCollectionListener)(void *user, const char *ns);
+void lowladb_add_collection_listener(LowlaDbCollectionListener l, void *user);
+void lowladb_remove_collection_listener(LowlaDbCollectionListener l);
+
 
 #endif

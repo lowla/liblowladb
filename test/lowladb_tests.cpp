@@ -894,6 +894,83 @@ TEST_F(DbTestFixture, test_cursor_show_pending) {
     EXPECT_FALSE(cursor->next());
 }
 
+static void TestCollectionListener(void *user, const char *ns);
+
+class ListenerTestFixture : public DbTestFixture
+{
+public:
+    ListenerTestFixture();
+    ~ListenerTestFixture();
+    
+    std::vector<utf16string> m_calls;
+};
+
+ListenerTestFixture::ListenerTestFixture() {
+    lowladb_add_collection_listener(TestCollectionListener, this);
+}
+
+ListenerTestFixture::~ListenerTestFixture() {
+    lowladb_remove_collection_listener(TestCollectionListener);
+}
+
+static void TestCollectionListener(void *user, const char *ns) {
+    ListenerTestFixture *fixture = (ListenerTestFixture *)user;
+    fixture->m_calls.push_back(ns);
+}
+
+TEST_F(ListenerTestFixture, testCollectionListenerInsert) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+
+    EXPECT_EQ(1, m_calls.size());
+    EXPECT_EQ("mydb.mycoll", m_calls[0]);
+}
+
+TEST_F(ListenerTestFixture, testCollectionListenerRemove) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    m_calls.clear();
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    
+    coll->remove(bson->data());
+
+    EXPECT_EQ(1, m_calls.size());
+    EXPECT_EQ("mydb.mycoll", m_calls[0]);
+}
+
+TEST_F(ListenerTestFixture, testCollectionListenerUpdate) {
+    CLowlaDBBson::ptr bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->appendInt("b", 10);
+    bson->finish();
+    coll->insert(bson->data());
+    
+    m_calls.clear();
+    
+    bson = CLowlaDBBson::create();
+    bson->appendInt("a", 1);
+    bson->finish();
+    
+    CLowlaDBBson::ptr object = CLowlaDBBson::create();
+    object->appendInt("a", 2);
+    object->finish();
+    
+    coll->update(bson->data(), object->data(), false, false);
+    
+    EXPECT_EQ(1, m_calls.size());
+    EXPECT_EQ("mydb.mycoll", m_calls[0]);
+}
+
 TEST_F(DbTestFixture, test_parse_syncer_response) {
     CLowlaDBBson::ptr syncResponse = CLowlaDBBson::create();
     

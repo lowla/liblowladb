@@ -94,8 +94,10 @@ class CLowlaDBImpl : public std::enable_shared_from_this<CLowlaDBImpl> {
 public:
     typedef std::shared_ptr<CLowlaDBImpl> ptr;
     
-    CLowlaDBImpl(sqlite3 *pDb);
+    CLowlaDBImpl(const utf16string &name, sqlite3 *pDb);
     ~CLowlaDBImpl();
+    
+    utf16string name();
     
     std::shared_ptr<CLowlaDBCollectionImpl> createCollection(const utf16string &name);
     void collectionNames(std::vector<utf16string> *plstNames);
@@ -104,6 +106,7 @@ public:
     Btree *btree();
     
 private:
+    utf16string m_name;
     sqlite3 *m_pDb;
 };
 
@@ -114,12 +117,9 @@ public:
     void setNsHasOutgoingChanges(const utf16string &ns, bool hasOutgoingChanges);
     bool hasOutgoingChanges();
     utf16string nsWithChanges();
-    void setWriteCallback(LowlaDBWriteCallback wcb);
-    void runWriteCallback();
     
 private:
     std::set<utf16string> m_nsWithChanges;
-    LowlaDBWriteCallback m_wcb;
     sqlite3_mutex *m_mutex;
 };
 
@@ -206,6 +206,8 @@ public:
 
     void setWriteLog(bool writeLog);
     void updateDocument(SqliteCursor *cursor, int64_t id, CLowlaDBBsonImpl *obj, CLowlaDBBsonImpl *oldObj, CLowlaDBBsonImpl *oldMeta);
+    
+    void notifyListeners();
 
 private:
     bool isReplaceObject(CLowlaDBBsonImpl *update);
@@ -229,6 +231,21 @@ private:
     bool m_writeLog;
 };
 
+class CLowlaDBCollectionListenerImpl
+{
+public:
+    static CLowlaDBCollectionListenerImpl *instance();
+    
+    void addListener(LowlaDbCollectionListener listener, void *user);
+    void removeListener(LowlaDbCollectionListener listener);
+
+    void notifyListeners(const char *ns);
+    
+private:
+    typedef std::pair<LowlaDbCollectionListener, void *> Entry;
+    std::vector<Entry> m_listeners;
+};
+
 static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name);
 
 class Tx
@@ -239,6 +256,8 @@ public:
     
     void commit();
     void detach();
+    
+    bool isOwnTx();
     
 private:
     static const int TRANS_READONLY = 0;
@@ -298,6 +317,9 @@ private:
 };
 
 CLowlaDBNsCache::~CLowlaDBNsCache() {
+    for (coll_iterator it = m_collCache.begin() ; it != m_collCache.end() ; ++it) {
+        it->second->notifyListeners();
+    }
     for (std::shared_ptr<Tx> const &tx : m_txCache) {
         tx->commit();
     }
@@ -391,6 +413,11 @@ void Tx::detach()
     }
 }
 
+bool Tx::isOwnTx()
+{
+    return m_ownTx;
+}
+
 CLowlaDB::ptr CLowlaDB::create(std::shared_ptr<CLowlaDBImpl> pimpl) {
     return CLowlaDB::ptr(new CLowlaDB(pimpl));
 }
@@ -465,11 +492,15 @@ UnpackedRecord* LowlaIdKey::newUnpackedRecord() {
     return answer;
 }
 
-CLowlaDBImpl::CLowlaDBImpl(sqlite3 *pDb) : m_pDb(pDb) {
+CLowlaDBImpl::CLowlaDBImpl(const utf16string &name, sqlite3 *pDb) : m_name(name), m_pDb(pDb) {
 }
 
 CLowlaDBImpl::~CLowlaDBImpl() {
     sqlite3_close(m_pDb);
+}
+
+utf16string CLowlaDBImpl::name() {
+    return m_name;
 }
 
 static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name) {
@@ -480,7 +511,7 @@ static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name) {
     sqlite3 *pDb;
     int rc = sqlite3_open_v2(filePath.c_str(), &pDb, SQLITE_OPEN_READWRITE, 0);
     if (SQLITE_OK == rc) {
-        std::unique_ptr<CLowlaDBImpl> pimpl(new CLowlaDBImpl(pDb));
+        std::unique_ptr<CLowlaDBImpl> pimpl(new CLowlaDBImpl(name, pDb));
         sqlite3_mutex_leave(mutex);
         return pimpl;
     }
@@ -489,7 +520,7 @@ static std::unique_ptr<CLowlaDBImpl> lowla_db_open(const utf16string &name) {
         rc = sqlite3_open_v2(filePath.c_str(), &pDb, SQLITE_OPEN_READWRITE, 0);
     }
     if (SQLITE_OK == rc) {
-        std::unique_ptr<CLowlaDBImpl> pimpl(new CLowlaDBImpl(pDb));
+        std::unique_ptr<CLowlaDBImpl> pimpl(new CLowlaDBImpl(name, pDb));
         sqlite3_mutex_leave(mutex);
         return pimpl;
     }
@@ -823,6 +854,13 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(CLowlaDB
     }
     
     rc = cursor->close();
+    
+    // We only notify listeners if we're a self-contained transaction. If we're part of a larger
+    // transaction then its owner should handle the notification so we don't spam clients.
+    if (tx.isOwnTx()) {
+        notifyListeners();
+    }
+    
     tx.commit();
     
     return answer;
@@ -885,6 +923,9 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vec
     
     logCursor->close();
     cursor->close();
+    
+    notifyListeners();
+    
     tx.commit();
     
     return answer;
@@ -926,6 +967,7 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::remove(CLowlaDB
     }
 
     cursor.reset();
+    notifyListeners();
     tx.commit();
     std::unique_ptr<CLowlaDBWriteResultImpl> wr(new CLowlaDBWriteResultImpl);
     wr->setDocumentCount((int)idsToDelete.size());
@@ -971,6 +1013,7 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::update(CLowlaDB
         found = cursor->next();
     }
     cursor.reset();
+    notifyListeners();
     tx.commit();
     return wr;
 }
@@ -1052,6 +1095,11 @@ void CLowlaDBCollectionImpl::updateDocument(SqliteCursor *cursor, int64_t id, CL
             }
         }
     }
+}
+
+void CLowlaDBCollectionImpl::notifyListeners() {
+    utf16string ns = m_db->name() + "." + m_name;
+    CLowlaDBCollectionListenerImpl::instance()->notifyListeners(ns.c_str());
 }
 
 bool CLowlaDBCollectionImpl::isReplaceObject(CLowlaDBBsonImpl *update) {
@@ -2156,7 +2204,7 @@ int64_t CLowlaDBCursorImpl::count() {
     return answer;
 }
 
-CLowlaDBSyncManagerImpl::CLowlaDBSyncManagerImpl() : m_wcb(nullptr) {
+CLowlaDBSyncManagerImpl::CLowlaDBSyncManagerImpl() {
     m_mutex = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
 }
 
@@ -2189,16 +2237,6 @@ utf16string CLowlaDBSyncManagerImpl::nsWithChanges() {
     }
     sqlite3_mutex_leave(m_mutex);
     return answer;
-}
-
-void CLowlaDBSyncManagerImpl::setWriteCallback(LowlaDBWriteCallback wcb) {
-    m_wcb = wcb;
-}
-
-void CLowlaDBSyncManagerImpl::runWriteCallback() {
-    if (m_wcb) {
-        (*m_wcb)();
-    }
 }
 
 CLowlaDBPullData::ptr CLowlaDBPullData::create(std::shared_ptr<CLowlaDBPullDataImpl> pimpl) {
@@ -2620,3 +2658,41 @@ void lowladb_load_json(const char *json) {
     }
 }
 
+CLowlaDBCollectionListenerImpl *CLowlaDBCollectionListenerImpl::instance()
+{
+    static CLowlaDBCollectionListenerImpl impl;
+    return &impl;
+}
+
+void CLowlaDBCollectionListenerImpl::addListener(LowlaDbCollectionListener listener, void *user)
+{
+    m_listeners.push_back(std::make_pair(listener, user));
+}
+
+void CLowlaDBCollectionListenerImpl::removeListener(LowlaDbCollectionListener listener)
+{
+    auto walk = m_listeners.begin();
+    while (walk != m_listeners.end()) {
+        if (walk->first == listener) {
+            walk = m_listeners.erase(walk);
+        }
+        else {
+            ++walk;
+        }
+    }
+}
+
+void CLowlaDBCollectionListenerImpl::notifyListeners(const char *ns)
+{
+    for (const Entry &e : m_listeners) {
+        (e.first)(e.second, ns);
+    }
+}
+
+void lowladb_add_collection_listener(LowlaDbCollectionListener listener, void *user) {
+    CLowlaDBCollectionListenerImpl::instance()->addListener(listener, user);
+}
+
+void lowladb_remove_collection_listener(LowlaDbCollectionListener listener) {
+    CLowlaDBCollectionListenerImpl::instance()->removeListener(listener);
+}
