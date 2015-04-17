@@ -10,6 +10,7 @@
 #include "utf16stringbuilder.h"
 #include "json/json.h"
 #include "lowladb.h"
+#include "md5.h"
 
 static const int PULL_BATCH_SIZE = 100;
 
@@ -44,8 +45,10 @@ static int createDatabase(const utf16string &filePath) {
 class Tx;
 class CLowlaDBNsCache {
 public:
+    CLowlaDBNsCache();
     ~CLowlaDBNsCache();
     CLowlaDBCollectionImpl *collectionForNs(const char *ns);
+    void setNotifyOnClose(bool notify);
     
 private:
     std::map<utf16string, std::shared_ptr<CLowlaDBImpl>> m_dbCache;
@@ -53,6 +56,8 @@ private:
     std::map<utf16string, std::shared_ptr<CLowlaDBCollectionImpl>> m_collCache;
     typedef std::map<utf16string, std::shared_ptr<CLowlaDBImpl>>::iterator db_iterator;
     typedef std::map<utf16string, std::shared_ptr<CLowlaDBCollectionImpl>>::iterator coll_iterator;
+    
+    bool m_notifyOnClose;
 };
 
 class CLowlaDBSyncDocumentLocation {
@@ -90,6 +95,29 @@ private:
     utf16string m_requestMore;
 };
 
+class CLowlaDBPushDataImpl {
+public:
+    bool isComplete();
+    CLowlaDBBson::ptr request();
+    void registerIds(const utf16string &ns, const std::vector<int64_t> &ids);
+    std::unique_ptr<CLowlaDBSyncDocumentLocation> canAcceptPushResponse(CLowlaDBCollectionImpl *coll, const char *ns, const char *id);
+    
+private:
+    std::map<utf16string, std::vector<int64_t>> m_ids;
+    
+    class CPushedRecord {
+    public:
+        CPushedRecord(const utf16string &ns, const char *id, int64_t sqliteId, const utf16string &md5);
+        
+        utf16string m_ns;
+        utf16string m_id;
+        int64_t m_sqliteId;
+        utf16string m_md5;
+    };
+    
+    std::vector<CPushedRecord> m_pending;
+};
+
 class CLowlaDBImpl : public std::enable_shared_from_this<CLowlaDBImpl> {
 public:
     typedef std::shared_ptr<CLowlaDBImpl> ptr;
@@ -108,19 +136,6 @@ public:
 private:
     utf16string m_name;
     sqlite3 *m_pDb;
-};
-
-class CLowlaDBSyncManagerImpl {
-public:
-    CLowlaDBSyncManagerImpl();
-    
-    void setNsHasOutgoingChanges(const utf16string &ns, bool hasOutgoingChanges);
-    bool hasOutgoingChanges();
-    utf16string nsWithChanges();
-    
-private:
-    std::set<utf16string> m_nsWithChanges;
-    sqlite3_mutex *m_mutex;
 };
 
 class CLowlaDBWriteResultImpl {
@@ -162,6 +177,7 @@ public:
     void appendLong(const char *key, int64_t value);
     void appendAll(CLowlaDBBsonImpl *bson);
     void appendElement(const CLowlaDBBsonImpl *src, const char *key);
+    void appendElement(const char *newKey, const CLowlaDBBsonImpl *src, const char *key);
     
     void startArray(const char *key);
     void finishArray();
@@ -178,7 +194,8 @@ public:
     bool intForKey(const char *key, int *ret);
     bool longForKey(const char *key, int64_t *ret);
     
-    const char *valueForKey(const char *key, long *count);
+    bool equalValues(const char *key, const CLowlaDBBsonImpl *other, const char *otherKey);
+    bool isEmpty();
     
     const char *data();
     size_t size();
@@ -202,7 +219,8 @@ public:
     CLowlaDBImpl::ptr db();
     bool shouldPullDocument(const CLowlaDBBsonImpl *atom);
     std::unique_ptr<CLowlaDBSyncDocumentLocation> locateDocumentForId(const char *id);
-    utf16string getName();
+    std::unique_ptr<CLowlaDBSyncDocumentLocation> locateDocumentForSqliteId(int64_t id);
+    utf16string name();
 
     void setWriteLog(bool writeLog);
     void updateDocument(SqliteCursor *cursor, int64_t id, CLowlaDBBsonImpl *obj, CLowlaDBBsonImpl *oldObj, CLowlaDBBsonImpl *oldMeta);
@@ -316,13 +334,23 @@ private:
     bool m_showDiskLoc;
 };
 
+CLowlaDBNsCache::CLowlaDBNsCache() : m_notifyOnClose(false)
+{
+}
+
 CLowlaDBNsCache::~CLowlaDBNsCache() {
-    for (coll_iterator it = m_collCache.begin() ; it != m_collCache.end() ; ++it) {
-        it->second->notifyListeners();
+    if (m_notifyOnClose) {
+        for (coll_iterator it = m_collCache.begin() ; it != m_collCache.end() ; ++it) {
+            it->second->notifyListeners();
+        }
     }
     for (std::shared_ptr<Tx> const &tx : m_txCache) {
         tx->commit();
     }
+}
+
+void CLowlaDBNsCache::setNotifyOnClose(bool notify) {
+    m_notifyOnClose = notify;
 }
 
 CLowlaDBCollectionImpl *CLowlaDBNsCache::collectionForNs(const char *ns) {
@@ -690,9 +718,9 @@ std::shared_ptr<CLowlaDBCollectionImpl> CLowlaDBCollection::pimpl() {
 CLowlaDBCollection::CLowlaDBCollection(std::shared_ptr<CLowlaDBCollectionImpl> pimpl) : m_pimpl(pimpl) {
 }
 
-CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const char *bsonData) {
+CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const char *bsonData, const char *lowlaId) {
     CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
-    std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(&bson, "");
+    std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(&bson, lowlaId);
     return CLowlaDBWriteResult::create(pimpl);
 }
 
@@ -734,12 +762,12 @@ static utf16string generateLowlaId(CLowlaDBCollectionImpl *coll, CLowlaDBBsonImp
     const char *id;
     bson_oid_t oid;
     if (obj->stringForKey("_id", &id)) {
-        return coll->getName() + "$" + id;
+        return coll->name() + "$" + id;
     }
     else if (obj->oidForKey("_id", &oid)) {
         char buf[CLowlaDBBson::OID_STRING_SIZE];
         CLowlaDBBson::oidToString((const char *)&oid, buf);
-        return coll->getName() + "$ObjectID(" + buf + ")";
+        return coll->name() + "$ObjectID(" + buf + ")";
     }
     else {
         return "";
@@ -1178,7 +1206,7 @@ void CLowlaDBCollectionImpl::forgetLowlaId(const char *lowlaId) {
     tx.commit();
 }
 
-utf16string CLowlaDBCollectionImpl::getName() {
+utf16string CLowlaDBCollectionImpl::name() {
     return m_name;
 }
 
@@ -1191,16 +1219,19 @@ void CLowlaDBCollectionImpl::setWriteLog(bool writeLog) {
 }
 
 std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocumentForId(const char *id) {
+    return locateDocumentForSqliteId(locateLowlaId(id));
+}
+
+std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocumentForSqliteId(int64_t id) {
     std::unique_ptr<CLowlaDBSyncDocumentLocation> answer(new CLowlaDBSyncDocumentLocation);
-
-    // Locate the document by its lowla key
-    Tx tx(db()->btree());
-
+    
     answer->m_logFound = false;
-    answer->m_sqliteId = locateLowlaId(id);
+    answer->m_sqliteId = id;
     if (0 == answer->m_sqliteId) {
         return answer;
     }
+    
+    Tx tx(db()->btree());
     
     SqliteCursor::ptr cursor = openCursor();
     answer->m_cursor = cursor;
@@ -1213,29 +1244,17 @@ std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocu
         int cbRequired = 4;
         bson_little_endian32(&objSize, cursor->dataFetch(&cbRequired));
         int metaSize = dataSize - objSize;
-        char meta[metaSize];
+        char *data = (char *)bson_malloc(objSize);
+        cursor->data(0, objSize, data);
+        answer->m_found.reset(new CLowlaDBBsonImpl(data, CLowlaDBBsonImpl::OWN));
+        char *meta = (char *)bson_malloc(metaSize);
         cursor->data(objSize, metaSize, meta);
-        CLowlaDBBsonImpl metaBson(meta, CLowlaDBBsonImpl::REF);
-        const char *foundKey;
-        metaBson.stringForKey("id", &foundKey);
-        if (0 == strcmp(foundKey, id)) {
-            char *data = (char *)bson_malloc(objSize);
-            cursor->data(0, objSize, data);
-            answer->m_found.reset(new CLowlaDBBsonImpl(data, CLowlaDBBsonImpl::OWN));
-            // Copy the metaBson into malloced data so we can return it safely. We only do this once
-            // we've found the match to avoid lots of slow heap access.
-            char *meta = (char *)bson_malloc(metaSize);
-            memcpy(meta, metaBson.data(), metaBson.size());
-            answer->m_foundMeta.reset(new CLowlaDBBsonImpl(meta, CLowlaDBBsonImpl::OWN));
-            cursor->keySize(&answer->m_sqliteId);
-            answer->m_logCursor = m_db->openCursor(m_logRoot);
-            int resLog;
-            int rcLog = answer->m_logCursor->movetoUnpacked(nullptr, answer->m_sqliteId, 0, &resLog);
-            answer->m_logFound = (SQLITE_OK == rcLog && 0 == resLog);
-            return answer;
-        }
-        throw TeamstudioException("Internal error: lowlaId mismatch");
+        answer->m_foundMeta.reset(new CLowlaDBBsonImpl(meta, CLowlaDBBsonImpl::OWN));
     }
+    answer->m_logCursor = m_db->openCursor(m_logRoot);
+    int resLog;
+    int rcLog = answer->m_logCursor->movetoUnpacked(nullptr, answer->m_sqliteId, 0, &resLog);
+    answer->m_logFound = (SQLITE_OK == rcLog && 0 == resLog);
     return answer;
 }
 
@@ -1254,16 +1273,8 @@ bool CLowlaDBCollectionImpl::shouldPullDocument(const CLowlaDBBsonImpl *atom) {
             return false;
         }
         // If the found record has the same version then don't want to pull
-        const char *_lowlaObj;
-        if (loc->m_found->objectForKey("_lowla", &_lowlaObj)) {
-            CLowlaDBBsonImpl _lowla(_lowlaObj, CLowlaDBBsonImpl::REF);
-            const char *foundVersion = "";
-            _lowla.stringForKey("version", &foundVersion);
-            const char *atomVersion = "";
-            atom->stringForKey("version", &atomVersion);
-            if (0 == strcmp(foundVersion, atomVersion)) {
-                return false;
-            }
+        if (loc->m_found->equalValues("_version", atom, "version")) {
+            return false;
         }
         // Good to pull
         return true;
@@ -1454,6 +1465,10 @@ void CLowlaDBBson::oidFromString(char *oid, const char *str) {
     bson_oid_from_string((bson_oid_t *)oid, str);
 }
 
+bool CLowlaDBBson::equalValues(const char *key, CLowlaDBBson::ptr other, const char *otherKey) {
+    return m_pimpl->equalValues(key, other->pimpl().get(), otherKey);
+}
+
 const char *CLowlaDBBson::data() {
     return m_pimpl->data();
 }
@@ -1561,6 +1576,14 @@ void CLowlaDBBsonImpl::appendElement(const CLowlaDBBsonImpl *src, const char *ke
     bson_type type = bson_find(it, src, key);
     if (BSON_EOO != type) {
         bson_append_element(this, nullptr, it);
+    }
+}
+
+void CLowlaDBBsonImpl::appendElement(const char *newKey, const CLowlaDBBsonImpl *src, const char *key) {
+    bson_iterator it[1];
+    bson_type type = bson_find(it, src, key);
+    if (BSON_EOO != type) {
+        bson_append_element(this, newKey, it);
     }
 }
 
@@ -1674,17 +1697,32 @@ bool CLowlaDBBsonImpl::longForKey(const char *key, int64_t *ret) {
     return false;
 }
 
-const char *CLowlaDBBsonImpl::valueForKey(const char *key, long *count) {
+bool CLowlaDBBsonImpl::equalValues(const char *key, const CLowlaDBBsonImpl *other, const char *otherKey) {
     bson_iterator it[1];
     bson_type type = bson_find(it, this, key);
     if (BSON_EOO == type) {
-        *count = 0;
-        return nullptr;
+        return false;
     }
-    const char *answer = bson_iterator_value(it);
+    bson_iterator otherIt[1];
+    bson_type otherType = bson_find(otherIt, other, otherKey);
+    if (type != otherType) {
+        return false;
+    }
+    const char *val = bson_iterator_value(it);
+    const char *otherVal = bson_iterator_value(otherIt);
     bson_iterator_next(it);
-    *count = it->cur - answer;
-    return answer;
+    bson_iterator_next(otherIt);
+    long valLength = it->cur - val;
+    long otherValLength = otherIt->cur - otherVal;
+    if (valLength != otherValLength) {
+        return false;
+    }
+    return 0 == memcmp(val, otherVal, valLength);
+}
+
+bool CLowlaDBBsonImpl::isEmpty() {
+    // An empty bson is 5 bytes: 4 for the length and 1 for a null.
+    return 5 == size();
 }
 
 CLowlaDBCursor::ptr CLowlaDBCursor::create(std::shared_ptr<CLowlaDBCursorImpl> pimpl) {
@@ -1702,7 +1740,6 @@ CLowlaDBCursor::ptr CLowlaDBCursor::create(CLowlaDBCollection::ptr coll, const c
         bsonQuery.reset(new CLowlaDBBsonImpl(query, CLowlaDBBsonImpl::COPY));
     }
     
-//    std::shared_ptr<CLowlaDBCursorImpl> pimpl(new CLowlaDBCursorImpl(coll->pimpl(), bsonQuery, std::shared_ptr<CLowlaDBBsonImpl>()));
     return create(std::make_shared<CLowlaDBCursorImpl>(coll->pimpl(), bsonQuery, std::shared_ptr<CLowlaDBBsonImpl>()));
 }
 
@@ -2112,14 +2149,7 @@ bool CLowlaDBCursorImpl::matches(CLowlaDBBsonImpl *found) {
     bson_iterator_init(it, m_query.get());
     while (bson_iterator_next(it)) {
         const char *key = bson_iterator_key(it);
-        if (!found->containsKey(key)) {
-            return false;
-        }
-        long foundLength;
-        const char *foundValue = found->valueForKey(key, &foundLength);
-        long queryLength;
-        const char *queryValue = m_query->valueForKey(key, &queryLength);
-        if (foundLength != queryLength || 0 != memcmp(foundValue, queryValue, foundLength)) {
+        if (!m_query->equalValues(key, found, key)) {
             return false;
         }
     }
@@ -2201,41 +2231,6 @@ int64_t CLowlaDBCursorImpl::count() {
     else {
         answer = m_limit;
     }
-    return answer;
-}
-
-CLowlaDBSyncManagerImpl::CLowlaDBSyncManagerImpl() {
-    m_mutex = sqlite3_mutex_alloc(SQLITE_MUTEX_FAST);
-}
-
-void CLowlaDBSyncManagerImpl::setNsHasOutgoingChanges(const utf16string &ns, bool hasOutgoingChanges) {
-    sqlite3_mutex_enter(m_mutex);
-    if (hasOutgoingChanges) {
-        m_nsWithChanges.insert(ns);
-    }
-    else {
-        m_nsWithChanges.erase(ns);
-    }
-    sqlite3_mutex_leave(m_mutex);
-}
-
-bool CLowlaDBSyncManagerImpl::hasOutgoingChanges() {
-    sqlite3_mutex_enter(m_mutex);
-    bool answer = !m_nsWithChanges.empty();
-    sqlite3_mutex_leave(m_mutex);
-    return answer;
-}
-
-utf16string CLowlaDBSyncManagerImpl::nsWithChanges() {
-    utf16string answer;
-    sqlite3_mutex_enter(m_mutex);
-    if (m_nsWithChanges.empty()) {
-        answer = "";
-    }
-    else {
-        answer = *m_nsWithChanges.begin();
-    }
-    sqlite3_mutex_leave(m_mutex);
     return answer;
 }
 
@@ -2324,6 +2319,180 @@ int CLowlaDBPullDataImpl::getSequenceForNextRequest() {
     return answer;
 }
 
+CLowlaDBPushData::ptr CLowlaDBPushData::create(std::shared_ptr<CLowlaDBPushDataImpl> pimpl) {
+    return CLowlaDBPushData::ptr(new CLowlaDBPushData(pimpl));
+}
+
+std::shared_ptr<CLowlaDBPushDataImpl> CLowlaDBPushData::pimpl() {
+    return m_pimpl;
+}
+
+CLowlaDBPushData::CLowlaDBPushData(std::shared_ptr<CLowlaDBPushDataImpl> pimpl) : m_pimpl(pimpl) {
+}
+
+void CLowlaDBPushDataImpl::registerIds(const utf16string &ns, const std::vector<int64_t> &ids) {
+    if (m_ids.find(ns) == m_ids.end()) {
+        m_ids.emplace(std::make_pair(ns, ids));
+    }
+    else {
+        std::vector<int64_t> &existing = m_ids[ns];
+        existing.insert(existing.end(), ids.begin(), ids.end());
+    }
+}
+
+bool CLowlaDBPushDataImpl::isComplete() {
+    return m_ids.empty();
+}
+
+CLowlaDBBson::ptr CLowlaDBPushDataImpl::request() {
+    auto walk = m_ids.begin();
+    CLowlaDBNsCache nsCache;
+    CLowlaDBCollectionImpl *coll;
+    
+    while (walk != m_ids.end()) {
+        coll = nsCache.collectionForNs(walk->first.c_str());
+        if (nullptr == coll) {
+            // If the collection is now gone, there's nothing more we can do
+            walk = m_ids.erase(walk);
+        }
+        else {
+            break;
+        }
+    }
+    if (walk == m_ids.end()) {
+        return CLowlaDBBson::ptr();
+    }
+    
+    std::vector<int64_t> &sqliteIds = walk->second;
+    int processed = 0;
+    CLowlaDBBson::ptr answer = CLowlaDBBson::create();
+    answer->startArray("documents");
+    
+    while (processed < 10 && !sqliteIds.empty()) {
+        int64_t id = sqliteIds.back();
+        sqliteIds.pop_back();
+        std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = coll->locateDocumentForSqliteId(id);
+        if (!loc->m_logFound) {
+            // Something's gone horribly wrong - by definition we *were* in the log. All we can do is skip
+            continue;
+        }
+        // Load up the log document & meta
+        u32 dataSize;
+        loc->m_logCursor->dataSize(&dataSize);
+        int objSize = 0;
+        int cbRequired = 4;
+        bson_little_endian32(&objSize, loc->m_logCursor->dataFetch(&cbRequired));
+        int metaSize = dataSize - objSize;
+        char *data = (char *)bson_malloc(objSize);
+        loc->m_logCursor->data(0, objSize, data);
+        std::unique_ptr<CLowlaDBBsonImpl> logDoc(new CLowlaDBBsonImpl(data, CLowlaDBBsonImpl::OWN));
+        char *meta = (char *)bson_malloc(metaSize);
+        loc->m_logCursor->data(objSize, metaSize, meta);
+        std::unique_ptr<CLowlaDBBsonImpl> logMeta(new CLowlaDBBsonImpl(meta, CLowlaDBBsonImpl::OWN));
+        
+        // Create the $set subobject
+        CLowlaDBBsonImpl setObj;
+        bson_iterator walkNew[1];
+        bson_iterator_init(walkNew, loc->m_found.get());
+        while (BSON_EOO != bson_iterator_next(walkNew)) {
+            const char *key = bson_iterator_key(walkNew);
+            if (!loc->m_found->equalValues(key, logDoc.get(), key)) {
+                setObj.appendElement(loc->m_found.get(), key);
+            }
+        }
+        setObj.finish();
+        
+        // Create the $unset subobject
+        CLowlaDBBsonImpl unsetObj;
+        bson_iterator walkOld[1];
+        bson_iterator_init(walkOld, logDoc.get());
+        while (BSON_EOO != bson_iterator_next(walkOld)) {
+            const char *key = bson_iterator_key(walkOld);
+            if (!loc->m_found->containsKey(key)) {
+                unsetObj.appendString(key, "");
+            }
+        }
+        unsetObj.finish();
+        
+        // If they're both empty then nothing to do
+        if (setObj.isEmpty() && unsetObj.isEmpty()) {
+            continue;
+        }
+        
+        // Append it all to the answer
+        answer->startObject(utf16string::valueOf(processed).c_str());
+        // Append the lowla fields
+        answer->startObject("_lowla");
+        const char *lowlaId;
+        logMeta->stringForKey("id", &lowlaId);
+        answer->appendString("id", lowlaId);
+        answer->pimpl()->appendElement("version", logDoc.get(), "_version");
+        answer->finishObject();
+        // Append the operations
+        answer->startObject("ops");
+        if (!setObj.isEmpty()) {
+            answer->appendObject("$set", setObj.data());
+        }
+        if (!unsetObj.isEmpty()) {
+            answer->appendObject("$unset", unsetObj.data());
+        }
+        answer->finishObject();
+        answer->finishObject();
+        
+        // And create the pending record
+        utf16string newHash;
+        if (loc->m_found) {
+            MD5 md5;
+            md5.update(loc->m_found->data(), (int)loc->m_found->size());
+            newHash = md5.hexdigest();
+        }
+        m_pending.emplace_back(walk->first, lowlaId, id, newHash);
+        
+        ++processed;
+    }
+    answer->finishArray();
+    answer->finish();
+    
+    return answer;
+}
+
+// Returns a non-null SyncDocumentLocation if the response can be accepted
+std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBPushDataImpl::canAcceptPushResponse(CLowlaDBCollectionImpl *coll, const char *ns, const char *id) {
+    // We can accept a push response if
+    // a) we sent a push request for this document; and
+    // b) the document hasn't changed since we sent the request
+    std::unique_ptr<CLowlaDBSyncDocumentLocation> loc;
+    for (CLowlaDBPushDataImpl::CPushedRecord &pr : m_pending) {
+        if (pr.m_id == id && pr.m_ns == ns) {
+            // At this point we know we sent a push request. Need to check the hash next
+            loc = coll->locateDocumentForSqliteId(pr.m_sqliteId);
+            // If the record is now deleted and was deleted when we pushed then ok
+            if (!loc->m_found) {
+                if (!pr.m_md5.isEmpty()) {
+                    loc.reset();
+                }
+                return loc;
+            }
+            // Otherwise the hashes need to match
+            utf16string newHash;
+            if (loc->m_found) {
+                MD5 md5;
+                md5.update(loc->m_found->data(), (int)loc->m_found->size());
+                newHash = md5.hexdigest();
+            }
+            if (newHash != pr.m_md5) {
+                loc.reset();
+            }
+            return loc;
+        }
+    }
+    return loc;
+}
+
+CLowlaDBPushDataImpl::CPushedRecord::CPushedRecord(const utf16string &ns, const char *lowlaId, int64_t id, const utf16string &md5) : m_ns(ns), m_id(lowlaId), m_sqliteId(id), m_md5(md5)
+{
+}
+
 utf16string lowladb_get_version() {
     return "0.0.2";
 }
@@ -2381,7 +2550,7 @@ CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
         return CLowlaDBBson::create(answer);
     }
     int i = 0;
-    answer->startObject("ids");
+    answer->startArray("ids");
     CLowlaDBPullDataImpl::atomIterator walk = pullData->atomsBegin();
     CLowlaDBPullDataImpl::atomIterator end = pullData->atomsEnd();
     while (walk != end) {
@@ -2396,15 +2565,14 @@ CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
         }
         ++walk;
     }
-    answer->finishObject();
+    answer->finishArray();
     answer->finish();
     return CLowlaDBBson::create(answer);
 }
 
 void processLeadingDeletions(CLowlaDBPullDataImpl *pullData, CLowlaDBNsCache &cache) {
     CLowlaDBPullDataImpl::atomIterator walk = pullData->atomsBegin();
-    CLowlaDBPullDataImpl::atomIterator end = pullData->atomsEnd();
-    while (walk != end) {
+    while (walk != pullData->atomsEnd()) {
         const CLowlaDBBsonImpl &atom = *walk;
         bool isDeletion;
         if (atom.boolForKey("deleted", &isDeletion) && isDeletion) {
@@ -2431,6 +2599,8 @@ void processLeadingDeletions(CLowlaDBPullDataImpl *pullData, CLowlaDBNsCache &ca
 void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPullData::ptr pd) {
     std::shared_ptr<CLowlaDBPullDataImpl> pullData = pd->pimpl();
     CLowlaDBNsCache cache;
+    cache.setNotifyOnClose(true);
+    
     int i = 0;
     while (i < response.size()) {
         processLeadingDeletions(pullData.get(), cache);
@@ -2464,6 +2634,7 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response,
         std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = coll->locateDocumentForId(id);
         // Don't do anything if there's an outgoing log document
         if (loc->m_logFound) {
+            pullData->eraseAtom(id);
             ++i;
             continue;
         }
@@ -2490,6 +2661,103 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response,
         ++i;
     }
     processLeadingDeletions(pullData.get(), cache);
+}
+
+static void collectPushDataForCollection(CLowlaDBCollectionImpl *coll, CLowlaDBPushDataImpl *pd) {
+    SqliteCursor::ptr log = coll->openLogCursor();
+    std::vector<int64_t> ids;
+    int rc, res;
+    rc = log->first(&res);
+    while (SQLITE_OK == rc && 0 == res) {
+        int64_t id;
+        rc = log->keySize(&id);
+        if (SQLITE_OK == rc) {
+            ids.push_back(id);
+            rc = log->next(&res);
+        }
+    }
+    pd->registerIds(coll->db()->name() + "." + coll->name(), ids);
+}
+
+CLowlaDBPushData::ptr lowladb_collect_push_data() {
+    std::shared_ptr<CLowlaDBPushDataImpl> pd(new CLowlaDBPushDataImpl);
+
+    std::vector<utf16string> dbs = SysListFiles();
+    for (const utf16string &dbName : dbs) {
+        CLowlaDB::ptr db = CLowlaDB::open(dbName);
+        if (!db) {
+            continue;
+        }
+        std::vector<utf16string> collections;
+        db->collectionNames(&collections);
+        for (const utf16string &collName : collections) {
+            CLowlaDBCollection::ptr coll = db->createCollection(collName);
+            collectPushDataForCollection(coll->pimpl().get(), pd.get());
+        }
+    }
+    return CLowlaDBPushData::create(pd);
+}
+
+CLowlaDBBson::ptr lowladb_create_push_request(CLowlaDBPushData::ptr pd) {
+    return pd->pimpl()->request();
+}
+
+void lowladb_apply_push_response(std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPushData::ptr pd) {
+    CLowlaDBPushDataImpl *pushData = pd->pimpl().get();
+    CLowlaDBNsCache cache;
+    int i = 0;
+    while (i < response.size()) {
+        CLowlaDBBson::ptr metaBson = response[i];
+        bool isDeletion = metaBson->boolForKey("deleted", &isDeletion) && isDeletion;
+        if (!isDeletion) {
+            if (response.size() <= i + 1) {
+                // Error - non deletion metadata not followed by document
+                break;
+            }
+            ++i;
+        }
+        
+        const char *ns;
+        metaBson->stringForKey("clientNs", &ns);
+        CLowlaDBCollectionImpl *coll = cache.collectionForNs(ns);
+        if (!coll) {
+            ++i;
+            continue;
+        }
+        coll->setWriteLog(false);
+        Tx tx(coll->db()->btree());
+        const char *id;
+        metaBson->stringForKey("id", &id);
+        // Make sure the document hasn't changed since we started the pull - ignore if so
+        std::unique_ptr<CLowlaDBSyncDocumentLocation> loc = pushData->canAcceptPushResponse(coll, ns, id);
+        if (!loc) {
+            ++i;
+            continue;
+        }
+        if (isDeletion) {
+            if (loc->m_found) {
+                loc->m_cursor->deleteCurrent();
+            }
+        }
+        else {
+            CLowlaDBBson::ptr dataBson = response[i];
+            if (loc->m_found) {
+                coll->updateDocument(loc->m_cursor.get(), loc->m_sqliteId, dataBson->pimpl().get(), loc->m_found.get(), loc->m_foundMeta.get());
+            }
+            else {
+                coll->insert(dataBson->pimpl().get(), id);
+            }
+        }
+        loc->m_logCursor->deleteCurrent();
+        if (loc->m_logCursor) {
+            loc->m_logCursor->close();
+        }
+        if (loc->m_cursor) {
+            loc->m_cursor->close();
+        }
+        tx.commit();
+        ++i;
+    }
 }
 
 static void bson_to_json_value(const char *bsonData, Json::Value *value) {

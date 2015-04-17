@@ -19,6 +19,7 @@ class CLowlaDBCollectionImpl;
 class CLowlaDBCursorImpl;
 class CLowlaDBWriteResultImpl;
 class CLowlaDBPullDataImpl;
+class CLowlaDBPushDataImpl;
 
 class CLowlaDBBson {
 public:
@@ -54,6 +55,8 @@ public:
     bool dateForKey(const char *key, int64_t *ret);
     bool intForKey(const char *key, int *ret);
     bool longForKey(const char *key, int64_t *ret);
+    
+    bool equalValues(const char *key, CLowlaDBBson::ptr other, const char *otherKey);
     
     const char *data();
     size_t size();
@@ -95,7 +98,7 @@ public:
     static CLowlaDBCollection::ptr create(std::shared_ptr<CLowlaDBCollectionImpl> pimpl);
     std::shared_ptr<CLowlaDBCollectionImpl> pimpl();
     
-    CLowlaDBWriteResult::ptr insert(const char *bsonData);
+    CLowlaDBWriteResult::ptr insert(const char *bsonData, const char *lowlaId = nullptr);
     CLowlaDBWriteResult::ptr insert(const std::vector<const char *> &bsonData);
     CLowlaDBWriteResult::ptr remove(const char *queryBson);
     CLowlaDBWriteResult::ptr save(const char *bsonData);
@@ -165,13 +168,27 @@ private:
     CLowlaDBPullData(std::shared_ptr<CLowlaDBPullDataImpl> pimpl);
 };
 
+class CLowlaDBPushData {
+public:
+    typedef std::shared_ptr<CLowlaDBPushData> ptr;
+    
+    static CLowlaDBPushData::ptr create(std::shared_ptr<CLowlaDBPushDataImpl> pimpl);
+    std::shared_ptr<CLowlaDBPushDataImpl> pimpl();
+    
+private:
+    std::shared_ptr<CLowlaDBPushDataImpl> m_pimpl;
+    CLowlaDBPushData(std::shared_ptr<CLowlaDBPushDataImpl> pimpl);
+};
+
 utf16string lowladb_get_version();
 void lowladb_list_databases(std::vector<utf16string> *plstdb);
 void lowladb_db_delete(const utf16string &name);
 
 CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bson);
-CLowlaDBBson::ptr lowladb_create_push_request();
-void lowladb_apply_push_response(const char *bson);
+CLowlaDBPushData::ptr lowladb_collect_push_data();
+CLowlaDBBson::ptr lowladb_create_push_request(CLowlaDBPushData::ptr pd);
+void lowladb_apply_push_response(const char *bson, CLowlaDBPushData::ptr pd);
+
 CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd);
 void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPullData::ptr pd);
 
