@@ -37,14 +37,14 @@ DbTestFixture::~DbTestFixture() {
 }
 
 void DbTestFixture::pullTestDocument() {
-    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"clientNs\" : \"mydb.mycoll\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
     
     CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
-    
+
     // We don't need the pull request, but creating it makes sure the tests work
     // the same way as the real code.
     lowladb_create_pull_request(pd);
-    
+
     CLowlaDBBson::ptr meta = CLowlaDBBson::create();
     CLowlaDBBson::ptr data = CLowlaDBBson::create();
     
@@ -1029,7 +1029,7 @@ TEST_F(DbTestFixture, test_parse_syncer_response) {
 
 TEST_F(DbTestFixture, test_pull_new_document) {
     pullTestDocument();
-    
+
     // Make sure we created the document
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
@@ -1230,9 +1230,9 @@ TEST_F(DbTestFixture, test_dont_pull_if_we_already_have_it) {
 TEST_F(DbTestFixture, test_create_pull_of_multiple_documents) {
     // Very early versions of lowladb had a crash when the syncer response contained multiple documents
     CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ "
-      "{\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false },"
-      "{\"id\" : \"serverdb.servercoll$1235\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false },"
-      "{\"id\" : \"serverdb.servercoll$1236\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false }"
+      "{\"id\" : \"serverdb.servercoll$1234\", \"clientNs\" : \"mydb.mycoll\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false },"
+      "{\"id\" : \"serverdb.servercoll$1235\", \"clientNs\" : \"mydb.mycoll\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false },"
+      "{\"id\" : \"serverdb.servercoll$1236\", \"clientNs\" : \"mydb.mycoll\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false }"
     "]}");
     
     CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
