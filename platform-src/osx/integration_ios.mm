@@ -181,19 +181,11 @@ utf16string SysNormalizePath(utf16string const& path)
 
 static bool addSkipBackupAttributeToFile(const utf16string &filename)
 {
-    if (&NSURLIsExcludedFromBackupKey == nil) { // iOS <= 5.0.1
-        const char* attrName = "com.apple.MobileBackup";
-        u_int8_t attrValue = 1;
-        
-        int result = setxattr(filename.c_str(), attrName, &attrValue, sizeof(attrValue), 0, 0);
-        return result == 0;
-    } else { // iOS >= 5.1
-        NSError *error = nil;
-        NSURL *url = [NSURL fileURLWithPath:@(filename.c_str())];
-        
-        [url setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&error];
-        return error == nil;
-    }
+    NSError *error = nil;
+    NSURL *url = [NSURL fileURLWithPath:@(filename.c_str())];
+    
+    [url setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&error];
+    return error == nil;
 }
 
 bool SysConfigureFile(const utf16string& filename) {

@@ -175,6 +175,8 @@ public:
     static CLowlaDBPushData::ptr create(std::shared_ptr<CLowlaDBPushDataImpl> pimpl);
     std::shared_ptr<CLowlaDBPushDataImpl> pimpl();
     
+    bool isComplete();
+    
 private:
     std::shared_ptr<CLowlaDBPushDataImpl> m_pimpl;
     CLowlaDBPushData(std::shared_ptr<CLowlaDBPushDataImpl> pimpl);
@@ -187,15 +189,20 @@ void lowladb_db_delete(const utf16string &name);
 CLowlaDBPullData::ptr lowladb_parse_syncer_response(const char *bson);
 CLowlaDBPushData::ptr lowladb_collect_push_data();
 CLowlaDBBson::ptr lowladb_create_push_request(CLowlaDBPushData::ptr pd);
-void lowladb_apply_push_response(const char *bson, CLowlaDBPushData::ptr pd);
+void lowladb_apply_push_response(std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPushData::ptr pd);
 
 CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd);
 void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPullData::ptr pd);
 
-CLowlaDBBson::ptr lowladb_json_to_bson(const utf16string &json);
+// The first version assumes the data is null-terminated. If not, use the second!
+CLowlaDBBson::ptr lowladb_json_to_bson(const char *json);
+CLowlaDBBson::ptr lowladb_json_to_bson(const char *json, size_t length);
+
 utf16string lowladb_bson_to_json(const char *bson);
 
 void lowladb_load_json(const char *json);
+void lowladb_apply_json_pull_response(const char *json, CLowlaDBPullData::ptr pd);
+void lowladb_apply_json_push_response(const char *json, CLowlaDBPushData::ptr pd);
 
 typedef void (*LowlaDbCollectionListener)(void *user, const char *ns);
 void lowladb_add_collection_listener(LowlaDbCollectionListener l, void *user);

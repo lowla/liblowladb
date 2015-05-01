@@ -18,6 +18,9 @@ public:
     DbTestFixture();
     ~DbTestFixture();
     
+    // Create a single document via pull - used in sync testing
+    void pullTestDocument();
+    
 protected:
     CLowlaDB::ptr db;
     CLowlaDBCollection::ptr coll;
@@ -31,6 +34,37 @@ DbTestFixture::DbTestFixture() {
 
 DbTestFixture::~DbTestFixture() {
     lowladb_db_delete("mydb");
+}
+
+void DbTestFixture::pullTestDocument() {
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
+    
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
+    
+    // We don't need the pull request, but creating it makes sure the tests work
+    // the same way as the real code.
+    lowladb_create_pull_request(pd);
+    
+    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
+    CLowlaDBBson::ptr data = CLowlaDBBson::create();
+    
+    meta->appendString("id", "serverdb.servercoll$1234");
+    meta->appendString("clientNs", "mydb.mycoll");
+    meta->finish();
+    
+    data->appendString("myfield", "mystring");
+    data->appendString("_id", "1234");
+    data->appendInt("_version", 1);
+    data->finish();
+    
+    std::vector<CLowlaDBBson::ptr> response;
+    response.push_back(meta);
+    response.push_back(data);
+    lowladb_apply_pull_response(response, pd);
+    
+    // Make sure we updated the pull data
+    EXPECT_TRUE(pd->isComplete());
+    EXPECT_EQ(2, pd->getSequenceForNextRequest());
 }
 
 TEST_F(DbTestFixture, test_collection_names) {
@@ -994,25 +1028,7 @@ TEST_F(DbTestFixture, test_parse_syncer_response) {
 }
 
 TEST_F(DbTestFixture, test_pull_new_document) {
-    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
-    
-    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
-
-    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
-    CLowlaDBBson::ptr data = CLowlaDBBson::create();
-    
-    meta->appendString("id", "serverdb.servercoll$1234");
-    meta->appendString("clientNs", "mydb.mycoll");
-    meta->finish();
-    
-    data->appendString("myfield", "mystring");
-    data->appendString("_id", "1234");
-    data->finish();
-    
-    std::vector<CLowlaDBBson::ptr> response;
-    response.push_back(meta);
-    response.push_back(data);
-    lowladb_apply_pull_response(response, pd);
+    pullTestDocument();
     
     // Make sure we created the document
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
@@ -1020,45 +1036,28 @@ TEST_F(DbTestFixture, test_pull_new_document) {
     const char *val;
     EXPECT_TRUE(check->stringForKey("myfield", &val));
     EXPECT_STREQ("mystring", val);
-    
-    // Make sure we updated the pull data
-    EXPECT_TRUE(pd->isComplete());
-    EXPECT_EQ(2, pd->getSequenceForNextRequest());
 }
 
 TEST_F(DbTestFixture, test_pull_existing_document) {
-    // Start by pulling down the document
-    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
+    pullTestDocument();
+    
+    // Now pull down a modification and make sure it works
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false }]}");
     
     CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
     
-    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
     CLowlaDBBson::ptr data = CLowlaDBBson::create();
-    
-    meta->appendString("id", "serverdb.servercoll$1234");
-    meta->appendString("clientNs", "mydb.mycoll");
-    meta->finish();
-    
-    data->appendString("myfield", "mystring");
-    data->appendString("_id", "1234");
-    data->finish();
-    
-    std::vector<CLowlaDBBson::ptr> response;
-    response.push_back(meta);
-    response.push_back(data);
-    lowladb_apply_pull_response(response, pd);
-    
-    // Now pull down a modification and make sure it works
-    syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false }]}");
-    
-    pd = lowladb_parse_syncer_response(syncResponse->data());
-    
-    data = CLowlaDBBson::create();
     data->appendString("myfield", "mystring_modified");
     data->appendString("_id", "1234");
     data->finish();
 
-    response.clear();
+    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
+    meta->appendString("id", "serverdb.servercoll$1234");
+    meta->appendString("clientNs", "mydb.mycoll");
+    meta->finish();
+
+    
+    std::vector<CLowlaDBBson::ptr> response;
     response.push_back(meta);
     response.push_back(data);
     lowladb_apply_pull_response(response, pd);
@@ -1085,26 +1084,7 @@ TEST_F(DbTestFixture, test_pull_modified_document) {
     doc->finish();
     coll->insert(doc->data(), "serverdb.servercoll$1234");
     
-    // Now pull down a modification and make sure it doesn't overwrite or insert
-    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
-    
-    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
-    
-    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
-    CLowlaDBBson::ptr data = CLowlaDBBson::create();
-    
-    meta->appendString("id", "serverdb.servercoll$1234");
-    meta->appendString("clientNs", "mydb.mycoll");
-    meta->finish();
-    
-    data->appendString("myfield", "mystring");
-    data->appendString("_id", "1234");
-    data->finish();
-    
-    std::vector<CLowlaDBBson::ptr> response;
-    response.push_back(meta);
-    response.push_back(data);
-    lowladb_apply_pull_response(response, pd);
+    pullTestDocument();
     
     CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
     CLowlaDBBson::ptr check = cursor->next();
@@ -1113,9 +1093,6 @@ TEST_F(DbTestFixture, test_pull_modified_document) {
     EXPECT_STREQ("mystring_beforesync", val);
     check = cursor->next();
     EXPECT_FALSE(check);
-    
-    // Even tho we didn't import the document, it should still be marked done in the pulldata
-    EXPECT_TRUE(pd->isComplete());
 }
 
 TEST_F(DbTestFixture, test_pull_deletion_not_on_client) {
@@ -1132,33 +1109,16 @@ TEST_F(DbTestFixture, test_pull_deletion_not_on_client) {
 }
 
 TEST_F(DbTestFixture, test_pull_deletion_of_existing_document) {
-    // Start by pulling down the document
-    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
-    
-    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
-    
-    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
-    CLowlaDBBson::ptr data = CLowlaDBBson::create();
-    
-    meta->appendString("id", "serverdb.servercoll$1234");
-    meta->appendString("clientNs", "mydb.mycoll");
-    meta->finish();
-    
-    data->appendString("myfield", "mystring");
-    data->appendString("_id", "1234");
-    data->finish();
-    
-    std::vector<CLowlaDBBson::ptr> response;
-    response.push_back(meta);
-    response.push_back(data);
-    lowladb_apply_pull_response(response, pd);
+    pullTestDocument();
     
     // Now pull down a deletion and make sure it works
-    syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : true, \"clientNs\" : \"mydb.mycoll\" }]}");
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : true, \"clientNs\" : \"mydb.mycoll\" }]}");
     
-    pd = lowladb_parse_syncer_response(syncResponse->data());
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
+
+    lowladb_create_pull_request(pd);
     
-    response.clear();
+    std::vector<CLowlaDBBson::ptr> response;
     lowladb_apply_pull_response(response, pd);
     
     // Make sure we deleted the document
@@ -1200,41 +1160,22 @@ TEST_F(DbTestFixture, test_pull_deletion_of_modified_document) {
 }
 
 TEST_F(DbTestFixture, test_pull_unexpected_deletion_of_existing_document) {
-    // Start by pulling down the document
-    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
+    pullTestDocument();
+    
+    // Now have the syncer say that a change is coming
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false, \"clientNs\" : \"mydb.mycoll\" }]}");
     
     CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
     
-    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
-    CLowlaDBBson::ptr data = CLowlaDBBson::create();
-    
-    meta->appendString("id", "serverdb.servercoll$1234");
-    meta->appendString("clientNs", "mydb.mycoll");
-    meta->finish();
-    
-    data->appendString("myfield", "mystring");
-    data->appendString("_id", "1234");
-    data->finish();
-    
-    std::vector<CLowlaDBBson::ptr> response;
-    response.push_back(meta);
-    response.push_back(data);
-    lowladb_apply_pull_response(response, pd);
-    
-    // Now have the syncer say that a change is coming
-    syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false, \"clientNs\" : \"mydb.mycoll\" }]}");
-    
-    pd = lowladb_parse_syncer_response(syncResponse->data());
-    
     // But have the adapter send an unexpected deletion i.e. the doc was deleted after the adapter
     // notified the syncer of an edit
-    meta = CLowlaDBBson::create();
+    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
     meta->appendString("id", "serverdb.servercoll$1234");
     meta->appendString("clientNs", "mydb.mycoll");
     meta->appendBool("deleted", true);
     meta->finish();
 
-    response.clear();
+    std::vector<CLowlaDBBson::ptr> response;
     response.push_back(meta);
     lowladb_apply_pull_response(response, pd);
     
@@ -1273,36 +1214,495 @@ TEST_F(DbTestFixture, test_dont_pull_deletions) {
 }
 
 TEST_F(DbTestFixture, test_dont_pull_if_we_already_have_it) {
-    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false }]}");
+    pullTestDocument();
+    
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false, \"clientNs\" : \"mydb.mycoll\" }]}");
     
     CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
-    
-    CLowlaDBBson::ptr meta = CLowlaDBBson::create();
-    CLowlaDBBson::ptr data = CLowlaDBBson::create();
-    
-    meta->appendString("id", "serverdb.servercoll$1234");
-    meta->appendString("clientNs", "mydb.mycoll");
-    meta->finish();
-    
-    data->appendString("myfield", "mystring");
-    data->appendString("_id", "1234");
-    data->appendInt("_version", 1);
-    data->finish();
-    
-    std::vector<CLowlaDBBson::ptr> response;
-    response.push_back(meta);
-    response.push_back(data);
-    lowladb_apply_pull_response(response, pd);
-    
-    syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false, \"clientNs\" : \"mydb.mycoll\" }]}");
-    
-    pd = lowladb_parse_syncer_response(syncResponse->data());
     
     CLowlaDBBson::ptr req = lowladb_create_pull_request(pd);
     
     utf16string json = lowladb_bson_to_json(req->data());
     
     EXPECT_EQ("{\n   \"ids\" : []\n}\n", json);
+}
+
+TEST_F(DbTestFixture, test_create_pull_of_multiple_documents) {
+    // Very early versions of lowladb had a crash when the syncer response contained multiple documents
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 4, \"atoms\" : [ "
+      "{\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false },"
+      "{\"id\" : \"serverdb.servercoll$1235\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false },"
+      "{\"id\" : \"serverdb.servercoll$1236\", \"sequence\" : 3, \"version\" : 2, \"deleted\" : false }"
+    "]}");
+    
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
+    
+    CLowlaDBBson::ptr request = lowladb_create_pull_request(pd);
+}
+
+TEST_F(DbTestFixture, test_compute_push_payload_for_new_documents) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendInt("a", 1);
+    doc->appendInt("b", 2);
+    doc->finish();
+    coll->insert(doc->data());
+    
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    CLowlaDBBson::ptr push = lowladb_create_push_request(pd);
+    EXPECT_TRUE(push->containsKey("documents"));
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(push->arrayForKey("documents", &arr));
+    CLowlaDBBson::ptr obj;
+    EXPECT_TRUE(arr->objectForKey("0", &obj));
+    CLowlaDBBson::ptr subObj;
+    EXPECT_TRUE(obj->objectForKey("_lowla", &subObj));
+    EXPECT_TRUE(subObj->containsKey("id"));
+    EXPECT_TRUE(obj->objectForKey("ops", &subObj));
+    CLowlaDBBson::ptr ops;
+    EXPECT_TRUE(subObj->objectForKey("$set", &ops));
+    int check;
+    EXPECT_TRUE(ops->intForKey("a", &check));
+    EXPECT_EQ(1, check);
+    EXPECT_TRUE(ops->intForKey("b", &check));
+    EXPECT_EQ(2, check);
+    // We don't push _id, per the spec
+    EXPECT_FALSE(ops->containsKey("_id"));
+    EXPECT_FALSE(subObj->containsKey("$unset"));
+    EXPECT_FALSE(arr->objectForKey("1", &obj));
+}
+
+TEST_F(DbTestFixture, test_compute_push_payload_for_new_modified_documents) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendInt("a", 1);
+    doc->appendInt("b", 2);
+    doc->finish();
+    coll->insert(doc->data());
+    doc = CLowlaDBBson::create();
+    CLowlaDBBson::ptr setObj = CLowlaDBBson::create();
+    setObj->appendInt("b", 3);
+    setObj->finish();
+    doc->appendObject("$set", setObj->data());
+    doc->finish();
+    
+    CLowlaDBBson::ptr filter = CLowlaDBBson::create();
+    filter->appendInt("a", 1);
+    filter->finish();
+    
+    coll->update(filter->data(), doc->data(), false, false);
+    
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    CLowlaDBBson::ptr push = lowladb_create_push_request(pd);
+    EXPECT_TRUE(push->containsKey("documents"));
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(push->arrayForKey("documents", &arr));
+    CLowlaDBBson::ptr obj;
+    EXPECT_TRUE(arr->objectForKey("0", &obj));
+    CLowlaDBBson::ptr subObj;
+    EXPECT_TRUE(obj->objectForKey("_lowla", &subObj));
+    EXPECT_TRUE(subObj->containsKey("id"));
+    EXPECT_TRUE(obj->objectForKey("ops", &subObj));
+    CLowlaDBBson::ptr ops;
+    EXPECT_TRUE(subObj->objectForKey("$set", &ops));
+    int check;
+    EXPECT_TRUE(ops->intForKey("a", &check));
+    EXPECT_EQ(1, check);
+    EXPECT_TRUE(ops->intForKey("b", &check));
+    EXPECT_EQ(3, check);
+    EXPECT_FALSE(ops->containsKey("_id"));
+    EXPECT_FALSE(subObj->containsKey("$unset"));
+    EXPECT_FALSE(arr->objectForKey("1", &obj));
+}
+
+TEST_F(DbTestFixture, test_compute_push_payload_for_modified_document_field) {
+    pullTestDocument();
+    
+    // Modify a field
+    CLowlaDBBson::ptr setObj = CLowlaDBBson::create();
+    setObj->appendString("myfield", "modified");
+    setObj->finish();
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendObject("$set", setObj->data());
+    doc->finish();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1234");
+    query->finish();
+    
+    coll->update(query->data(), doc->data(), false, false);
+    
+    // And check we generated a $set
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    CLowlaDBBson::ptr push = lowladb_create_push_request(pd);
+    EXPECT_TRUE(push->containsKey("documents"));
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(push->arrayForKey("documents", &arr));
+    CLowlaDBBson::ptr obj;
+    EXPECT_TRUE(arr->objectForKey("0", &obj));
+    CLowlaDBBson::ptr subObj;
+    EXPECT_TRUE(obj->objectForKey("_lowla", &subObj));
+    const char *check;
+    EXPECT_TRUE(subObj->stringForKey("id", &check));
+    EXPECT_STREQ("serverdb.servercoll$1234", check);
+    EXPECT_TRUE(obj->objectForKey("ops", &subObj));
+    CLowlaDBBson::ptr ops;
+    EXPECT_TRUE(subObj->objectForKey("$set", &ops));
+    EXPECT_TRUE(ops->stringForKey("myfield", &check));
+    EXPECT_STREQ("modified", check);
+    EXPECT_FALSE(ops->containsKey("_version"));
+    EXPECT_FALSE(ops->containsKey("_id"));
+    EXPECT_FALSE(ops->containsKey("$unset"));
+    EXPECT_FALSE(arr->objectForKey("1", &obj));
+}
+
+TEST_F(DbTestFixture, test_compute_push_payload_for_removed_document_field) {
+    pullTestDocument();
+    
+    // Remove a field
+    CLowlaDBBson::ptr setObj = CLowlaDBBson::create();
+    setObj->appendString("myfield", "modified");
+    setObj->finish();
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendObject("$unset", setObj->data());
+    doc->finish();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1234");
+    query->finish();
+    
+    coll->update(query->data(), doc->data(), false, false);
+    
+    // And check we generated an $unset
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    CLowlaDBBson::ptr push = lowladb_create_push_request(pd);
+    EXPECT_TRUE(push->containsKey("documents"));
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(push->arrayForKey("documents", &arr));
+    CLowlaDBBson::ptr obj;
+    EXPECT_TRUE(arr->objectForKey("0", &obj));
+    CLowlaDBBson::ptr subObj;
+    EXPECT_TRUE(obj->objectForKey("_lowla", &subObj));
+    const char *check;
+    EXPECT_TRUE(subObj->stringForKey("id", &check));
+    EXPECT_STREQ("serverdb.servercoll$1234", check);
+    EXPECT_TRUE(obj->objectForKey("ops", &subObj));
+    CLowlaDBBson::ptr ops;
+    EXPECT_TRUE(subObj->objectForKey("$unset", &ops));
+    EXPECT_TRUE(ops->containsKey("myfield"));
+    EXPECT_FALSE(ops->containsKey("_version"));
+    EXPECT_FALSE(ops->containsKey("_id"));
+    EXPECT_FALSE(ops->containsKey("$set"));
+    EXPECT_FALSE(arr->objectForKey("1", &obj));
+}
+
+TEST_F(DbTestFixture, test_compute_push_payload_for_added_and_removed_document_field) {
+    pullTestDocument();
+    
+    // Create a new field and remove the old one
+    CLowlaDBBson::ptr setObj = CLowlaDBBson::create();
+    setObj->appendString("myfield2", "new");
+    setObj->finish();
+    CLowlaDBBson::ptr unsetObj = CLowlaDBBson::create();
+    unsetObj->appendString("myfield", "modified");
+    unsetObj->finish();
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendObject("$set", setObj->data());
+    doc->appendObject("$unset", unsetObj->data());
+    doc->finish();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1234");
+    query->finish();
+    
+    coll->update(query->data(), doc->data(), false, false);
+    
+    // And check we generated both a $set and $unset
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    CLowlaDBBson::ptr push = lowladb_create_push_request(pd);
+    EXPECT_TRUE(push->containsKey("documents"));
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(push->arrayForKey("documents", &arr));
+    CLowlaDBBson::ptr obj;
+    EXPECT_TRUE(arr->objectForKey("0", &obj));
+    CLowlaDBBson::ptr subObj;
+    EXPECT_TRUE(obj->objectForKey("_lowla", &subObj));
+    const char *check;
+    EXPECT_TRUE(subObj->stringForKey("id", &check));
+    EXPECT_STREQ("serverdb.servercoll$1234", check);
+    EXPECT_TRUE(obj->objectForKey("ops", &subObj));
+    CLowlaDBBson::ptr ops;
+    EXPECT_TRUE(subObj->objectForKey("$unset", &ops));
+    EXPECT_TRUE(ops->containsKey("myfield"));
+    EXPECT_FALSE(ops->containsKey("_version"));
+    EXPECT_FALSE(ops->containsKey("_id"));
+    EXPECT_TRUE(subObj->objectForKey("$set", &ops));
+    EXPECT_TRUE(ops->stringForKey("myfield2", &check));
+    EXPECT_STREQ("new", check);
+    EXPECT_FALSE(ops->containsKey("_version"));
+    EXPECT_FALSE(ops->containsKey("_id"));
+    EXPECT_FALSE(arr->objectForKey("1", &obj));
+}
+
+TEST_F(DbTestFixture, test_push_chunking) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendString("myfield", "myvalue");
+    doc->finish();
+    
+    for (int i = 0 ; i < 25 ; ++i) {
+        coll->insert(doc->data());
+    }
+    
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    // First chunk...
+    CLowlaDBBson::ptr chunk = lowladb_create_push_request(pd);
+    // Check the chunk has 10 documents
+    EXPECT_TRUE(chunk->containsKey("documents"));
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(chunk->arrayForKey("documents", &arr));
+    EXPECT_TRUE(arr->containsKey("0"));
+    EXPECT_TRUE(arr->containsKey("9"));
+    EXPECT_FALSE(arr->containsKey("10"));
+    
+    // Second chunk...
+    chunk = lowladb_create_push_request(pd);
+    // Check the chunk has 10 documents
+    EXPECT_TRUE(chunk->containsKey("documents"));
+    EXPECT_TRUE(chunk->arrayForKey("documents", &arr));
+    EXPECT_TRUE(arr->containsKey("0"));
+    EXPECT_TRUE(arr->containsKey("9"));
+    EXPECT_FALSE(arr->containsKey("10"));
+    
+    // Third chunk...
+    chunk = lowladb_create_push_request(pd);
+    // Check the chunk has the last 5 documents
+    EXPECT_TRUE(chunk->containsKey("documents"));
+    EXPECT_TRUE(chunk->arrayForKey("documents", &arr));
+    EXPECT_TRUE(arr->containsKey("0"));
+    EXPECT_TRUE(arr->containsKey("4"));
+    EXPECT_FALSE(arr->containsKey("5"));
+
+    // And make sure we're done
+    EXPECT_TRUE(pd->isComplete());
+}
+
+TEST_F(DbTestFixture, test_compute_push_payload_for_removed_document) {
+    pullTestDocument();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1234");
+    query->finish();
+    
+    coll->remove(query->data());
+
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    CLowlaDBBson::ptr push = lowladb_create_push_request(pd);
+    
+    EXPECT_TRUE(push->containsKey("documents"));
+    CLowlaDBBson::ptr arr;
+    EXPECT_TRUE(push->arrayForKey("documents", &arr));
+    CLowlaDBBson::ptr obj;
+    EXPECT_TRUE(arr->objectForKey("0", &obj));
+    CLowlaDBBson::ptr subObj;
+    EXPECT_TRUE(obj->objectForKey("_lowla", &subObj));
+    const char *check;
+    EXPECT_TRUE(subObj->stringForKey("id", &check));
+    EXPECT_STREQ("serverdb.servercoll$1234", check);
+    bool checkDeleted;
+    EXPECT_TRUE(subObj->boolForKey("deleted", &checkDeleted));
+    EXPECT_TRUE(checkDeleted);
+    
+    EXPECT_TRUE(pd->isComplete());
+}
+
+TEST_F(DbTestFixture, test_push_response_that_edits_document) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendString("_id", "1");
+    doc->appendString("myfield", "myvalue");
+    doc->finish();
+    coll->insert(doc->data());
+
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    lowladb_apply_json_push_response("[{ \"id\" : \"mydb.mycoll$1\", \"clientNs\" : \"mydb.mycoll\" }, { \"_id\" : \"1\", \"_version\" : 2, \"myfield\" : \"modified\" }]", pd);
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    doc = cursor->next();
+    const char *check;
+    EXPECT_TRUE(doc->stringForKey("myfield", &check));
+    EXPECT_STREQ("modified", check);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_push_response_that_deletes_document) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendString("_id", "1");
+    doc->appendString("myfield", "myvalue");
+    doc->finish();
+    coll->insert(doc->data());
+    
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    lowladb_apply_json_push_response("[{ \"id\" : \"mydb.mycoll$1\", \"clientNs\" : \"mydb.mycoll\", \"deleted\" : true }]", pd);
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_push_response_that_recovers_document) {
+    pullTestDocument();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1234");
+    query->finish();
+    coll->remove(query->data());
+    
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    lowladb_apply_json_push_response("[{ \"id\" : \"serverdb.servercoll$1234\", \"clientNs\" : \"mydb.mycoll\" }, { \"_id\" : \"1\", \"_version\" : 2, \"myfield\" : \"modified\" }]", pd);
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    CLowlaDBBson::ptr doc = cursor->next();
+    const char *check;
+    EXPECT_TRUE(doc->stringForKey("myfield", &check));
+    EXPECT_STREQ("modified", check);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_push_response_that_repeats_delete) {
+    pullTestDocument();
+    
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1234");
+    query->finish();
+    coll->remove(query->data());
+    
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    lowladb_apply_json_push_response("[{ \"id\" : \"serverdb.servercoll$1234\", \"clientNs\" : \"mydb.mycoll\", \"deleted\" : true }]", pd);
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_push_response_ignores_unexpected_document) {
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    lowladb_apply_json_push_response("[{ \"id\" : \"serverdb.servercoll$1234\", \"clientNs\" : \"mydb.mycoll\" }, { \"_id\" : \"1\", \"_version\" : 2, \"myfield\" : \"modified\" }]", pd);
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_FALSE(cursor->next());
+}
+
+TEST_F(DbTestFixture, test_push_response_ignores_document_changed_during_push) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendString("_id", "1");
+    doc->appendString("myfield", "myvalue");
+    doc->finish();
+    coll->insert(doc->data());
+    
+    // Create the push request
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    // Modify the document after creating the push request but before processing the response
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1");
+    query->finish();
+    doc = CLowlaDBBson::create();
+    doc->appendString("myfield", "modified");
+    doc->finish();
+    coll->update(query->data(), doc->data(), false, false);
+    
+    // Now apply the response
+    lowladb_apply_json_push_response("[{ \"id\" : \"mydb.mycoll$1\", \"clientNs\" : \"mydb.mycoll\", \"deleted\" : true }]", pd);
+    
+    // We should ignore the response
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    doc = cursor->next();
+    EXPECT_TRUE(!!doc);
+    const char *check;
+    EXPECT_TRUE(doc->stringForKey("myfield", &check));
+    EXPECT_STREQ("modified", check);
+    EXPECT_FALSE(cursor->next());
+    cursor.reset();
+    
+    // And the document should be available for pushing next time.
+    pd = lowladb_collect_push_data();
+    EXPECT_FALSE(pd->isComplete());
+}
+
+TEST_F(DbTestFixture, test_push_response_ignores_document_deleted_during_push) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendString("_id", "1");
+    doc->appendString("myfield", "myvalue");
+    doc->finish();
+    coll->insert(doc->data());
+    
+    // Create the push request
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    // Delete the document after creating the push request but before processing the response
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "1");
+    query->finish();
+    coll->remove(query->data());
+    
+    // Now apply the response
+    lowladb_apply_json_push_response("[{ \"id\" : \"mydb.mycoll$1\", \"clientNs\" : \"mydb.mycoll\" }, { \"_id\" : \"1\", \"_version\" : 2, \"myfield\" : \"modified\" }]", pd);
+    
+    // We should ignore the response
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    EXPECT_FALSE(cursor->next());
+    cursor.reset();
+    
+    // And the document should be available for pushing next time.
+    pd = lowladb_collect_push_data();
+    EXPECT_FALSE(pd->isComplete());
+}
+
+TEST_F(DbTestFixture, test_push_response_that_changes_lowlaId) {
+    CLowlaDBBson::ptr doc = CLowlaDBBson::create();
+    doc->appendString("_id", "1");
+    doc->appendString("myfield", "myvalue");
+    doc->finish();
+    coll->insert(doc->data());
+    
+    CLowlaDBPushData::ptr pd = lowladb_collect_push_data();
+    lowladb_create_push_request(pd);
+    
+    lowladb_apply_json_push_response("[{ \"id\" : \"mydb.mycoll$2\", \"clientNs\" : \"mydb.mycoll\", \"clientId\" : \"mydb.mycoll$1\" }, { \"_id\" : \"2\", \"_version\" : 2, \"myfield\" : \"modified\" }]", pd);
+    
+    // Make sure we updated the existing document, didn't create a new one
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    doc = cursor->next();
+    const char *check;
+    EXPECT_TRUE(doc->stringForKey("myfield", &check));
+    EXPECT_STREQ("modified", check);
+    EXPECT_TRUE(doc->stringForKey("_id", &check));
+    EXPECT_STREQ("2", check);
+    EXPECT_FALSE(cursor->next());
+    cursor.reset();
+    
+    // We dont' have an easy way to get to the LowlaId of a document. The easiest way is to edit it,
+    // create some push data and make sure it has the right LowlaId.
+    CLowlaDBBson::ptr query = CLowlaDBBson::create();
+    query->appendString("_id", "2");
+    query->finish();
+    doc = CLowlaDBBson::create();
+    doc->appendString("myfield", "again");
+    doc->finish();
+    coll->update(query->data(), doc->data(), false, false);
+    
+    pd = lowladb_collect_push_data();
+    CLowlaDBBson::ptr request = lowladb_create_push_request(pd);
+    utf16string json = lowladb_bson_to_json(request->data());
+    EXPECT_TRUE(-1 != json.indexOf("mydb.mycoll$2"));
+    EXPECT_TRUE(-1 == json.indexOf("mydb.mycoll$1"));
 }
 
 /*

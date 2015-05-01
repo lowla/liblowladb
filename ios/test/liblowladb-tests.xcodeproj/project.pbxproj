@@ -178,7 +178,7 @@
 			isa = PBXProject;
 			attributes = {
 				CLASSPREFIX = MDB;
-				LastUpgradeCheck = 0510;
+				LastUpgradeCheck = 0630;
 				ORGANIZATIONNAME = MomoDB;
 			};
 			buildConfigurationList = 4DFDBC4819AE6CBA00566892 /* Build configuration list for PBXProject "liblowladb-tests" */;
@@ -433,6 +433,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = FC086A843CFF0CDD2798E0A7 /* Pods-osx.debug.xcconfig */;
 			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(DEVELOPER_FRAMEWORKS_DIR)",
 					"$(inherited)",
@@ -456,6 +457,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = B83871737A79DE8B5FEE0CA4 /* Pods-osx.release.xcconfig */;
 			buildSettings = {
+				COMBINE_HIDPI_IMAGES = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(DEVELOPER_FRAMEWORKS_DIR)",
