@@ -98,7 +98,8 @@ public:
     static CLowlaDBCollection::ptr create(std::shared_ptr<CLowlaDBCollectionImpl> pimpl);
     std::shared_ptr<CLowlaDBCollectionImpl> pimpl();
     
-    CLowlaDBWriteResult::ptr insert(const char *bsonData, const char *lowlaId = nullptr);
+    CLowlaDBWriteResult::ptr insert(const char *bsonData);
+    CLowlaDBWriteResult::ptr insert(const char *bsonData, const char *lowlaId);
     CLowlaDBWriteResult::ptr insert(const std::vector<const char *> &bsonData);
     CLowlaDBWriteResult::ptr remove(const char *queryBson);
     CLowlaDBWriteResult::ptr save(const char *bsonData);

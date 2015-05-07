@@ -725,6 +725,10 @@ std::shared_ptr<CLowlaDBCollectionImpl> CLowlaDBCollection::pimpl() {
 CLowlaDBCollection::CLowlaDBCollection(std::shared_ptr<CLowlaDBCollectionImpl> pimpl) : m_pimpl(pimpl) {
 }
 
+CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const char *bsonData) {
+    return insert(bsonData, nullptr);
+}
+
 CLowlaDBWriteResult::ptr CLowlaDBCollection::insert(const char *bsonData, const char *lowlaId) {
     CLowlaDBBsonImpl bson(bsonData, CLowlaDBBsonImpl::REF);
     std::shared_ptr<CLowlaDBWriteResultImpl> pimpl = m_pimpl->insert(&bson, lowlaId);
@@ -2779,6 +2783,8 @@ static void mergeId(CLowlaDBBsonImpl *newMeta, CLowlaDBBsonImpl *oldMeta, const 
 void lowladb_apply_push_response(std::vector<CLowlaDBBson::ptr> &response, CLowlaDBPushData::ptr pd) {
     CLowlaDBPushDataImpl *pushData = pd->pimpl().get();
     CLowlaDBNsCache cache;
+    cache.setNotifyOnClose(true);
+
     int i = 0;
     while (i < response.size()) {
         CLowlaDBBson::ptr metaBson = response[i];
