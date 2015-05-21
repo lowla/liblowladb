@@ -1208,9 +1208,7 @@ TEST_F(DbTestFixture, test_dont_pull_deletions) {
     
     CLowlaDBBson::ptr req = lowladb_create_pull_request(pd);
     
-    utf16string json = lowladb_bson_to_json(req->data());
-    
-    EXPECT_EQ("{\n   \"ids\" : []\n}\n", json);
+    EXPECT_FALSE(req);
 }
 
 TEST_F(DbTestFixture, test_dont_pull_if_we_already_have_it) {
@@ -1222,9 +1220,7 @@ TEST_F(DbTestFixture, test_dont_pull_if_we_already_have_it) {
     
     CLowlaDBBson::ptr req = lowladb_create_pull_request(pd);
     
-    utf16string json = lowladb_bson_to_json(req->data());
-    
-    EXPECT_EQ("{\n   \"ids\" : []\n}\n", json);
+    EXPECT_FALSE(req);
 }
 
 TEST_F(DbTestFixture, test_create_pull_of_multiple_documents) {

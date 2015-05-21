@@ -2607,6 +2607,7 @@ CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
     int i = 0;
     answer->startArray("ids");
     CLowlaDBPullDataImpl::atomIterator walk = pullData->atomsBegin();
+    bool foundIdToPull = false;
     while (walk != pullData->atomsEnd()) {
         const CLowlaDBBsonImpl *atom = (*walk).get();
         bool deleted;
@@ -2617,6 +2618,7 @@ CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
             continue;
         }
         else if (shouldPullDocument(atom, cacheNs)) {
+            foundIdToPull = true;
             const char *id;
             atom->stringForKey("id", &id);
             answer->appendString(utf16string::valueOf(i++).c_str(), id);
@@ -2631,7 +2633,12 @@ CLowlaDBBson::ptr lowladb_create_pull_request(CLowlaDBPullData::ptr pd) {
     }
     answer->finishArray();
     answer->finish();
-    return CLowlaDBBson::create(answer);
+    if (foundIdToPull) {
+        return CLowlaDBBson::create(answer);
+    }
+    else {
+        return CLowlaDBBson::ptr();
+    }
 }
 
 void processLeadingDeletions(CLowlaDBPullDataImpl *pullData, CLowlaDBNsCache &cache) {
