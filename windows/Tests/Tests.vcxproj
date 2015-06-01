@@ -1,0 +1,166 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{64792B67-1E38-4199-BB7B-648B0A486741}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <RootNamespace>Tests</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v120</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+    <WindowsAppContainer>false</WindowsAppContainer>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v120</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <LinkIncremental>true</LinkIncremental>
+    <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);..\..\src;..\..\src\datastore</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <LinkIncremental>false</LinkIncremental>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <WarningLevel>Level3</WarningLevel>
+      <Optimization>Disabled</Optimization>
+      <PreprocessorDefinitions>WIN32;MONGO_USE_LONG_LONG_INT;MONGO_STATIC_BUILD;_CRT_SECURE_NO_WARNINGS;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>true</SDLCheck>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <PreprocessorDefinitions>WIN32;MONGO_USE_LONG_LONG_INT;MONGO_STATIC_BUILD;_CRT_SECURE_NO_WARNINGS;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <SDLCheck>true</SDLCheck>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\platform-src\windows\ConvertUTF.h" />
+    <ClInclude Include="..\..\src\bson\bcon.h" />
+    <ClInclude Include="..\..\src\bson\bson.h" />
+    <ClInclude Include="..\..\src\bson\encoding.h" />
+    <ClInclude Include="..\..\src\bytevector.h" />
+    <ClInclude Include="..\..\src\datastore\btree.h" />
+    <ClInclude Include="..\..\src\datastore\btreeInt.h" />
+    <ClInclude Include="..\..\src\datastore\hash.h" />
+    <ClInclude Include="..\..\src\datastore\mutex.h" />
+    <ClInclude Include="..\..\src\datastore\opcodes.h" />
+    <ClInclude Include="..\..\src\datastore\os.h" />
+    <ClInclude Include="..\..\src\datastore\os_common.h" />
+    <ClInclude Include="..\..\src\datastore\pager.h" />
+    <ClInclude Include="..\..\src\datastore\parse.h" />
+    <ClInclude Include="..\..\src\datastore\pcache.h" />
+    <ClInclude Include="..\..\src\datastore\sqlite3.h" />
+    <ClInclude Include="..\..\src\datastore\sqliteInt.h" />
+    <ClInclude Include="..\..\src\datastore\sqliteLimit.h" />
+    <ClInclude Include="..\..\src\datastore\vdbe.h" />
+    <ClInclude Include="..\..\src\datastore\vdbeInt.h" />
+    <ClInclude Include="..\..\src\integration.h" />
+    <ClInclude Include="..\..\src\json\json.h" />
+    <ClInclude Include="..\..\src\lowladb.h" />
+    <ClInclude Include="..\..\src\md5.h" />
+    <ClInclude Include="..\..\src\SqliteCursor.h" />
+    <ClInclude Include="..\..\src\SqliteKey.h" />
+    <ClInclude Include="..\..\src\TeamstudioException.h" />
+    <ClInclude Include="..\..\src\utf16character.h" />
+    <ClInclude Include="..\..\src\utf16string.h" />
+    <ClInclude Include="..\..\src\utf16stringbuilder.h" />
+    <ClInclude Include="..\..\test\gtest.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\platform-src\windows\ConvertUTF.cpp" />
+    <ClCompile Include="..\..\platform-src\windows\utf16string.cpp" />
+    <ClCompile Include="..\..\src\bson\bcon.c" />
+    <ClCompile Include="..\..\src\bson\bson.c" />
+    <ClCompile Include="..\..\src\bson\encoding.c" />
+    <ClCompile Include="..\..\src\bson\numbers.c" />
+    <ClCompile Include="..\..\src\datastore\backup.c" />
+    <ClCompile Include="..\..\src\datastore\bitvec.c" />
+    <ClCompile Include="..\..\src\datastore\btmutex.c" />
+    <ClCompile Include="..\..\src\datastore\btree.c" />
+    <ClCompile Include="..\..\src\datastore\callback.c" />
+    <ClCompile Include="..\..\src\datastore\fault.c" />
+    <ClCompile Include="..\..\src\datastore\global.c" />
+    <ClCompile Include="..\..\src\datastore\hash.c" />
+    <ClCompile Include="..\..\src\datastore\malloc.c" />
+    <ClCompile Include="..\..\src\datastore\mem1.c" />
+    <ClCompile Include="..\..\src\datastore\memjournal.c" />
+    <ClCompile Include="..\..\src\datastore\mutex.c" />
+    <ClCompile Include="..\..\src\datastore\mutex_unix.c" />
+    <ClCompile Include="..\..\src\datastore\mutex_w32.c" />
+    <ClCompile Include="..\..\src\datastore\os.c" />
+    <ClCompile Include="..\..\src\datastore\os_unix.c" />
+    <ClCompile Include="..\..\src\datastore\os_win.c" />
+    <ClCompile Include="..\..\src\datastore\pager.c" />
+    <ClCompile Include="..\..\src\datastore\pcache.c" />
+    <ClCompile Include="..\..\src\datastore\pcache1.c" />
+    <ClCompile Include="..\..\src\datastore\printf.c" />
+    <ClCompile Include="..\..\src\datastore\random.c" />
+    <ClCompile Include="..\..\src\datastore\sqmain.c" />
+    <ClCompile Include="..\..\src\datastore\status.c" />
+    <ClCompile Include="..\..\src\datastore\utf.c" />
+    <ClCompile Include="..\..\src\datastore\util.c" />
+    <ClCompile Include="..\..\src\datastore\vdbe.c" />
+    <ClCompile Include="..\..\src\datastore\vdbemem.c" />
+    <ClCompile Include="..\..\src\json\jsoncpp.cpp" />
+    <ClCompile Include="..\..\src\lowladb.cpp" />
+    <ClCompile Include="..\..\src\md5.cpp" />
+    <ClCompile Include="..\..\src\SqliteCursor.cpp" />
+    <ClCompile Include="..\..\src\SqliteKey.cpp" />
+    <ClCompile Include="..\..\src\TeamstudioException.cpp" />
+    <ClCompile Include="..\..\src\utf16stringbuilder.cpp" />
+    <ClCompile Include="..\..\test\gtest-all.cc" />
+    <ClCompile Include="..\..\test\lowladb_tests.cpp" />
+    <ClCompile Include="..\..\test\main.cpp" />
+    <ClCompile Include="integration_test.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".gitignore" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

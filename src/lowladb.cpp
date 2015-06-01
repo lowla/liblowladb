@@ -919,7 +919,7 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::insert(std::vec
     SqliteCursor::ptr cursor = m_db->openCursor(m_root);
     SqliteCursor::ptr logCursor = m_db->openCursor(m_logRoot);
 
-    for (int i = 0 ; i < arr.size() ; ++i) {
+    for (size_t i = 0 ; i < arr.size() ; ++i) {
         CLowlaDBBsonImpl *obj = &arr[i];
         CLowlaDBBsonImpl fixed;
         if (!obj->containsKey("_id")) {
@@ -1343,9 +1343,6 @@ void CLowlaDBWriteResultImpl::setDocumentCount(int count) {
     m_count = count;
 }
 
-const size_t CLowlaDBBson::OID_SIZE = sizeof(bson_oid_t);
-const size_t CLowlaDBBson::OID_STRING_SIZE = 2 * OID_SIZE + 1;
-
 CLowlaDBBson::ptr CLowlaDBBson::create() {
     return CLowlaDBBson::ptr(new CLowlaDBBson(std::make_shared<CLowlaDBBsonImpl>()));
 }
@@ -1682,7 +1679,7 @@ bool CLowlaDBBsonImpl::boolForKey(const char *key, bool *ret) const {
     bson_iterator it[1];
     bson_type type = bson_find(it, this, key);
     if (BSON_BOOL == type) {
-        *ret = bson_iterator_bool_raw(it);
+        *ret = 0 != bson_iterator_bool_raw(it);
         return true;
     }
     return false;
@@ -2093,7 +2090,7 @@ static bson_type locateDottedField(bson_iterator *it, CLowlaDBBsonImpl *doc, std
 {
     bson_type answer = BSON_EOO;
     bson_iterator_init(it, doc);
-    for (int i = 0 ; i < keys.size() - 1 ; ++i) {
+    for (size_t i = 0 ; i < keys.size() - 1 ; ++i) {
         const char *keystr = keys[i].c_str();
         answer = bson_iterator_next(it);
         while (BSON_EOO != answer) {
@@ -2437,7 +2434,7 @@ static void appendDeletion(CLowlaDBBson::ptr answer, CLowlaDBBsonImpl *oldDoc, c
 CLowlaDBBson::ptr CLowlaDBPushDataImpl::request() {
     auto walk = m_ids.begin();
     CLowlaDBNsCache nsCache;
-    CLowlaDBCollectionImpl *coll;
+    CLowlaDBCollectionImpl *coll = nullptr;
     
     while (walk != m_ids.end()) {
         coll = nsCache.collectionForNs(walk->first.c_str());
@@ -2672,7 +2669,7 @@ void lowladb_apply_pull_response(const std::vector<CLowlaDBBson::ptr> &response,
     CLowlaDBNsCache cache;
     cache.setNotifyOnClose(true);
     
-    int i = 0;
+    size_t i = 0;
     while (i < response.size()) {
         processLeadingDeletions(pullData.get(), cache);
         CLowlaDBBson::ptr metaBson = response[i];
@@ -2792,7 +2789,7 @@ void lowladb_apply_push_response(std::vector<CLowlaDBBson::ptr> &response, CLowl
     CLowlaDBNsCache cache;
     cache.setNotifyOnClose(true);
 
-    int i = 0;
+    size_t i = 0;
     while (i < response.size()) {
         CLowlaDBBson::ptr metaBson = response[i];
         bool isDeletion = metaBson->boolForKey("deleted", &isDeletion) && isDeletion;
@@ -2905,7 +2902,7 @@ static void bson_to_json_value(const char *bsonData, Json::Value *value) {
                 break;
             }
             case BSON_BOOL: {
-                *lval = (bool)bson_iterator_bool(it);
+                *lval = (0 != bson_iterator_bool(it));
                 break;
             }
             case BSON_INT: {
@@ -2969,12 +2966,12 @@ static void appendJsonValueToBson(CLowlaDBBsonImpl *bson, const char *key, const
                     bson->appendDate(key, value["millis"].asInt64());
                 }
                 else if (bsonType.asString() == "ObjectId") {
-                    const char *str = value["hexString"].asString().c_str();
-                    if (24 != strlen(str)) {
+					utf16string str(value["hexString"].asString().c_str());
+                    if (24 != str.length()) {
                         throw TeamstudioException("Invalid ObjectId string: " + utf16string(str));
                     }
                     bson_oid_t oid;
-                    bson_oid_from_string(&oid, str);
+                    bson_oid_from_string(&oid, str.c_str());
                     bson->appendOid(key, &oid);
                 }
             }

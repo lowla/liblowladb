@@ -130,7 +130,7 @@ int SqliteCursor::close() {
 }
 
 bool SqliteCursor::isEof() {
-	return sqlite3BtreeEof(&cursor);
+	return 0 != sqlite3BtreeEof(&cursor);
 }
 
 bool SqliteCursor::isEmpty() {
@@ -148,7 +148,7 @@ bool SqliteCursor::isSeekMatch(UnpackedRecord *pIdxKey) {
     }
     i64 keyLen;
     keySize(&keyLen);
-    char *keyBuf = new char[keyLen];
+    char *keyBuf = new char[(int)keyLen];
     key(0, (int)keyLen, keyBuf);
     
     bool answer = (0 == sqlite3VdbeRecordCompare((int)keyLen, keyBuf, pIdxKey));

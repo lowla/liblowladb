@@ -1,0 +1,261 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
+    </Filter>
+    <Filter Include="Resource Files">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+      <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="Source Files\Datastore">
+      <UniqueIdentifier>{78897133-eaf6-4977-892d-c4d74ea449fe}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Bson">
+      <UniqueIdentifier>{5a237986-49e1-4041-9587-e7966ae025f8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\Json">
+      <UniqueIdentifier>{9bbbf82b-43fb-403e-9fdd-836c750ff866}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\src\bytevector.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\integration.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\lowladb.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\md5.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\SqliteCursor.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\SqliteKey.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\TeamstudioException.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\utf16character.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\utf16string.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\utf16stringbuilder.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\test\gtest.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\btree.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\btreeInt.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\hash.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\mutex.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\opcodes.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\os.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\os_common.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\pager.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\parse.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\pcache.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\sqlite3.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\sqliteInt.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\sqliteLimit.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\vdbe.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\datastore\vdbeInt.h">
+      <Filter>Source Files\Datastore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\bson\bcon.h">
+      <Filter>Source Files\Bson</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\bson\bson.h">
+      <Filter>Source Files\Bson</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\bson\encoding.h">
+      <Filter>Source Files\Bson</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\src\json\json.h">
+      <Filter>Source Files\Json</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\platform-src\windows\ConvertUTF.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\src\lowladb.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\md5.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\SqliteCursor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\SqliteKey.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\TeamstudioException.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\utf16stringbuilder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\test\gtest-all.cc">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\test\lowladb_tests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\test\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\backup.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\bitvec.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\btmutex.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\btree.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\callback.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\fault.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\global.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\hash.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\malloc.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\mem1.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\memjournal.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\mutex.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\mutex_unix.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\os.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\os_unix.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\pager.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\pcache.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\pcache1.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\printf.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\random.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\sqmain.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\status.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\utf.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\util.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\vdbe.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\vdbemem.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\bson\bcon.c">
+      <Filter>Source Files\Bson</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\bson\bson.c">
+      <Filter>Source Files\Bson</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\bson\encoding.c">
+      <Filter>Source Files\Bson</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\bson\numbers.c">
+      <Filter>Source Files\Bson</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\json\jsoncpp.cpp">
+      <Filter>Source Files\Json</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\os_win.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\mutex_w32.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\platform-src\windows\ConvertUTF.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\platform-src\windows\utf16string.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="integration_test.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include=".gitignore" />
+  </ItemGroup>
+</Project>

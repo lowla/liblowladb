@@ -58,7 +58,7 @@ utf16stringbuilder &utf16stringbuilder::append(int i)
 }
 
 utf16stringbuilder &utf16stringbuilder::insert(int index, const utf16string &str) {
-    if (index < 0 || m_str.size() < index) {
+    if (index < 0 || m_str.size() < (size_t)index) {
         throw StringIndexOutOfBoundsException("String index out of range: " + utf16string::valueOf(index));
     }
     return insert(m_str.begin() + index, str);

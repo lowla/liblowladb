@@ -63,8 +63,11 @@ public:
     
     void finish();
     
-    static const size_t OID_SIZE;
-    static const size_t OID_STRING_SIZE;
+	// OID_SIZE is sizeof(bson_oid_t) but we need to define it here (rather than in the .cpp file)
+	// to be able to compile in Visual Studio. We don't want to expose bson.h to our callers.
+    static const size_t OID_SIZE = 12;
+    static const size_t OID_STRING_SIZE = 2 * OID_SIZE + 1;
+
     static void oidToString(const char *oid, char *buffer);
     static void oidFromString(char *oid, const char *str);
     static void oidGenerate(char *buffer);
