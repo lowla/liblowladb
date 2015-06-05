@@ -11,16 +11,18 @@
 #define _SQLITEKEY_H
 
 extern "C" {
-#include "sqlite3.h"
 #include "sqliteInt.h"
 #include "vdbeInt.h"
 }
+
+class SqliteCursor;
 
 class SqliteKey {
 public:
 	virtual int getSize() const = 0;
 	virtual int writeToPointer(unsigned char *pc) = 0;
 	virtual UnpackedRecord *newUnpackedRecord() = 0;
+	virtual void updateIdFromCursor(SqliteCursor *cursor) = 0;
 
 	void deleteUnpackedRecord(UnpackedRecord *record);
 	i64 getId() const;

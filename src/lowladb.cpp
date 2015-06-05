@@ -418,7 +418,7 @@ Tx::Tx(Btree *pBt, bool readOnly = false) : m_pBt(pBt)
 Tx::~Tx()
 {
     if (SQLITE_OK == m_rc && m_ownTx) {
-        sqlite3BtreeRollback(m_pBt);
+        sqlite3BtreeRollback(m_pBt, SQLITE_OK, 0);
     }
     sqlite3_mutex_leave(m_pBt->db->mutex);
 }
@@ -464,7 +464,8 @@ public:
     int getSize() const;
     int writeToPointer(unsigned char *pc);
     UnpackedRecord *newUnpackedRecord();
-    
+	void updateIdFromCursor(SqliteCursor *cursor);
+
 private:
     const char *m_pszKey;
     int m_cb;
@@ -480,19 +481,15 @@ KeyInfo *LowlaIdKey::getKeyInfo() {
     static CollSeq collSec;
     keyInfo.nField = 1;
     keyInfo.aColl[0] = &collSec;
+	keyInfo.aSortOrder = (u8 *)1;
     collSec.xCmp = LowlaIdKey::compare;
     return &keyInfo;
 }
 
 int LowlaIdKey::compare(void *pUser, int n1, const void *key1, int n2, const void *key2) {
-    UnpackedRecord *record = (UnpackedRecord*)pUser;
     int answer = n1 - n2;
     if (0 == answer) {
         answer = strcmp((const char *)key1, (const char *)key2);
-    }
-    if (0 == answer) {
-        size_t cb = strlen((const char *)key1);
-        sqlite3GetVarint((const unsigned char *)key1 + cb + 1, (u64*)&record->rowid);
     }
     return answer;
 }
@@ -510,15 +507,23 @@ int LowlaIdKey::writeToPointer(unsigned char *pc) {
 
 UnpackedRecord* LowlaIdKey::newUnpackedRecord() {
     UnpackedRecord* answer = (UnpackedRecord*)sqlite3_malloc(sizeof(UnpackedRecord) + sizeof(Mem) + getSize());
-    answer->flags = UNPACKED_NEED_FREE;
     answer->nField = 1;
     answer->pKeyInfo = LowlaIdKey::getKeyInfo();
+	answer->default_rc = 0;
     answer->aMem = (Mem*)(answer + 1);
     answer->aMem->flags = 0;
     answer->aMem->n = getSize();
     answer->aMem->zMalloc = (char *)(answer->aMem + 1);
     writeToPointer((unsigned char*)answer->aMem->zMalloc);
     return answer;
+}
+
+void LowlaIdKey::updateIdFromCursor(SqliteCursor *cursor) {
+	u32 wdc;
+	const unsigned char *key = (const unsigned char *)cursor->keyFetch(&wdc);
+	u64 id;
+	sqlite3GetVarint(key + m_cb + 1, &id);
+	setId(id);
 }
 
 CLowlaDBImpl::CLowlaDBImpl(const utf16string &name, sqlite3 *pDb) : m_name(name), m_pDb(pDb) {
@@ -599,7 +604,7 @@ std::shared_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf
     }
     if (!res) {
         while (!headerCursor.isEof()) {
-            int wdc;
+            u32 wdc;
             const void *rawData = headerCursor.dataFetch(&wdc);
             bson data[1];
             bson_init_finished_data(data, (char *)rawData, false);
@@ -634,17 +639,17 @@ std::shared_ptr<CLowlaDBCollectionImpl> CLowlaDBImpl::createCollection(const utf
         }
     }
     int collRoot = 0;
-    rc = sqlite3BtreeCreateTable(pBt, &collRoot, BTREE_INTKEY | BTREE_LEAFDATA);
+    rc = sqlite3BtreeCreateTable(pBt, &collRoot, BTREE_INTKEY);
     if (SQLITE_OK != rc) {
         return nullptr;
     }
     int collLogRoot = 0;
-    rc = sqlite3BtreeCreateTable(pBt, &collLogRoot, BTREE_INTKEY | BTREE_LEAFDATA);
+    rc = sqlite3BtreeCreateTable(pBt, &collLogRoot, BTREE_INTKEY);
     if (SQLITE_OK != rc) {
         return nullptr;
     }
     int lowlaIndexRoot = 0;
-    rc = sqlite3BtreeCreateTable(pBt, &lowlaIndexRoot, BTREE_ZERODATA);
+    rc = sqlite3BtreeCreateTable(pBt, &lowlaIndexRoot, BTREE_BLOBKEY);
     if (SQLITE_OK != rc) {
         return nullptr;
     }
@@ -686,7 +691,7 @@ void CLowlaDBImpl::collectionNames(std::vector<utf16string> *plstNames) {
     int res;
     rc = headerCursor.first(&res);
     while (SQLITE_OK == rc && 0 == res) {
-        int wdc;
+        u32 wdc;
         const void *rawData = headerCursor.dataFetch(&wdc);
         bson data[1];
         bson_init_finished_data(data, (char *)rawData, false);
@@ -1003,7 +1008,8 @@ std::unique_ptr<CLowlaDBWriteResultImpl> CLowlaDBCollectionImpl::remove(CLowlaDB
         rc = cursor->sqliteCursor()->movetoUnpacked(nullptr, id, 0, &res);
         if (SQLITE_OK == rc && 0 == res) {
             const char *lowlaId;
-            cursor->currentMeta()->stringForKey("id", &lowlaId);
+			std::unique_ptr<CLowlaDBBsonImpl> meta = cursor->currentMeta();
+            meta->stringForKey("id", &lowlaId);
             cursor->sqliteCursor()->deleteCurrent();
             forgetLowlaId(lowlaId);
         }
@@ -1193,14 +1199,12 @@ i64 CLowlaDBCollectionImpl::locateLowlaId(const char *lowlaId) {
     lowlaCursor.create(pBt, m_lowlaIndexRoot, CURSOR_READWRITE, LowlaIdKey::getKeyInfo());
     
     LowlaIdKey key(lowlaId, 0);
-    UnpackedRecord* precord = key.newUnpackedRecord();
     int rc, res;
-    rc = lowlaCursor.movetoUnpacked(precord, 0, 0, &res);
+    rc = lowlaCursor.movetoUnpacked(&key, 0, 0, &res);
     i64 answer = 0;
     if (0 == res) {
-        answer = precord->rowid;
+		answer = key.getId();
     }
-    key.deleteUnpackedRecord(precord);
     lowlaCursor.close();
     
     tx.commit();
@@ -1262,7 +1266,7 @@ std::unique_ptr<CLowlaDBSyncDocumentLocation> CLowlaDBCollectionImpl::locateDocu
         u32 dataSize;
         cursor->dataSize(&dataSize);
         int objSize = 0;
-        int cbRequired = 4;
+        u32 cbRequired = 4;
         bson_little_endian32(&objSize, cursor->dataFetch(&cbRequired));
         int metaSize = dataSize - objSize;
         char *data = (char *)bson_malloc(objSize);
@@ -1842,7 +1846,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::next() {
 
 std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
     int rc;
-    int res;
+    int res = 0;
     if (!m_tx) {
         m_tx.reset(new Tx(m_coll->db()->btree()));
         m_cursor = m_coll->openCursor();
@@ -1878,7 +1882,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextUnsorted() {
 
 std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::nextSorted() {
     int rc;
-    int res;
+    int res = 0;
     if (!m_tx) {
         m_tx.reset(new Tx(m_coll->db()->btree()));
         m_cursor = m_coll->openCursor();
@@ -2144,7 +2148,7 @@ std::unique_ptr<CLowlaDBBsonImpl> CLowlaDBCursorImpl::currentMeta() {
     u32 dataSize;
     m_cursor->dataSize(&dataSize);
     int objSize = 0;
-    int cbRequired = 4;
+    u32 cbRequired = 4;
     bson_little_endian32(&objSize, m_cursor->dataFetch(&cbRequired));
     int metaSize = dataSize - objSize;
     char *meta = (char *)bson_malloc(metaSize);
@@ -2467,7 +2471,7 @@ CLowlaDBBson::ptr CLowlaDBPushDataImpl::request() {
         u32 dataSize;
         loc->m_logCursor->dataSize(&dataSize);
         int objSize = 0;
-        int cbRequired = 4;
+        u32 cbRequired = 4;
         bson_little_endian32(&objSize, loc->m_logCursor->dataFetch(&cbRequired));
         int metaSize = dataSize - objSize;
         char *data = (char *)bson_malloc(objSize);

@@ -27,5 +27,6 @@ int SqliteKey::getIdSize() const {
 }
 
 void SqliteKey::deleteUnpackedRecord(UnpackedRecord *precord) {
-	sqlite3VdbeDeleteUnpackedRecord(precord);
+	// TODO
+	//sqlite3VdbeDeleteUnpackedRecord(precord);
 }

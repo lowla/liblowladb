@@ -57,51 +57,6 @@
     <ClInclude Include="..\..\test\gtest.h">
       <Filter>Source Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\src\datastore\btree.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\btreeInt.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\hash.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\mutex.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\opcodes.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\os.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\os_common.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\pager.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\parse.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\pcache.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\sqlite3.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\sqliteInt.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\sqliteLimit.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\vdbe.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\src\datastore\vdbeInt.h">
-      <Filter>Source Files\Datastore</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\src\bson\bcon.h">
       <Filter>Source Files\Bson</Filter>
     </ClInclude>
@@ -143,87 +98,6 @@
     <ClCompile Include="..\..\test\lowladb_tests.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\test\main.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\backup.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\bitvec.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\btmutex.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\btree.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\callback.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\fault.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\global.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\hash.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\malloc.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\mem1.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\memjournal.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\mutex.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\mutex_unix.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\os.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\os_unix.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\pager.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\pcache.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\pcache1.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\printf.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\random.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\sqmain.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\status.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\utf.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\util.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\vdbe.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\vdbemem.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\bson\bcon.c">
       <Filter>Source Files\Bson</Filter>
     </ClCompile>
@@ -239,12 +113,6 @@
     <ClCompile Include="..\..\src\json\jsoncpp.cpp">
       <Filter>Source Files\Json</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\datastore\os_win.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\datastore\mutex_w32.c">
-      <Filter>Source Files\Datastore</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\platform-src\windows\ConvertUTF.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -252,6 +120,15 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="integration_test.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\sqlite3.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\datastore\sqlite3-lowla.c">
+      <Filter>Source Files\Datastore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\test\main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

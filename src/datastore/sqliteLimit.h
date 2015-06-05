@@ -98,19 +98,29 @@
 #endif
 
 /*
-** The maximum number of in-memory pages to use for the main database
-** table and for temporary tables.  The SQLITE_DEFAULT_CACHE_SIZE
+** The suggested maximum number of in-memory pages to use for
+** the main database table and for temporary tables.
+**
+** IMPLEMENTATION-OF: R-31093-59126 The default suggested cache size
+** is 2000 pages.
+** IMPLEMENTATION-OF: R-48205-43578 The default suggested cache size can be
+** altered using the SQLITE_DEFAULT_CACHE_SIZE compile-time options.
 */
 #ifndef SQLITE_DEFAULT_CACHE_SIZE
 # define SQLITE_DEFAULT_CACHE_SIZE  2000
 #endif
-#ifndef SQLITE_DEFAULT_TEMP_CACHE_SIZE
-# define SQLITE_DEFAULT_TEMP_CACHE_SIZE  500
+
+/*
+** The default number of frames to accumulate in the log file before
+** checkpointing the database in WAL mode.
+*/
+#ifndef SQLITE_DEFAULT_WAL_AUTOCHECKPOINT
+# define SQLITE_DEFAULT_WAL_AUTOCHECKPOINT  1000
 #endif
 
 /*
 ** The maximum number of attached databases.  This must be between 0
-** and 30.  The upper bound on 30 is because a 32-bit integer bitmap
+** and 62.  The upper bound on 62 is because a 64-bit integer bitmap
 ** is used internally to track attached databases.
 */
 #ifndef SQLITE_MAX_ATTACHED
@@ -125,20 +135,21 @@
 # define SQLITE_MAX_VARIABLE_NUMBER 999
 #endif
 
-/* Maximum page size.  The upper bound on this value is 32768.  This a limit
-** imposed by the necessity of storing the value in a 2-byte unsigned integer
-** and the fact that the page size must be a power of 2.
+/* Maximum page size.  The upper bound on this value is 65536.  This a limit
+** imposed by the use of 16-bit offsets within each page.
 **
-** If this limit is changed, then the compiled library is technically
-** incompatible with an SQLite library compiled with a different limit. If
-** a process operating on a database with a page-size of 65536 bytes 
-** crashes, then an instance of SQLite compiled with the default page-size 
-** limit will not be able to rollback the aborted transaction. This could
-** lead to database corruption.
+** Earlier versions of SQLite allowed the user to change this value at
+** compile time. This is no longer permitted, on the grounds that it creates
+** a library that is technically incompatible with an SQLite library 
+** compiled with a different limit. If a process operating on a database 
+** with a page-size of 65536 bytes crashes, then an instance of SQLite 
+** compiled with the default page-size limit will not be able to rollback 
+** the aborted transaction. This could lead to database corruption.
 */
-#ifndef SQLITE_MAX_PAGE_SIZE
-# define SQLITE_MAX_PAGE_SIZE 32768
+#ifdef SQLITE_MAX_PAGE_SIZE
+# undef SQLITE_MAX_PAGE_SIZE
 #endif
+#define SQLITE_MAX_PAGE_SIZE 65536
 
 
 /*

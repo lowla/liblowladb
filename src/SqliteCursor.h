@@ -14,10 +14,7 @@
 #include <string>
 
 extern "C" {
-#include "sqlite3.h"
-#include "btreeInt.h"
-#include "btree.h"
-#include "vdbeInt.h"
+#include <btreeInt.h>
 }
 
 #define CURSOR_READONLY		0
@@ -34,7 +31,7 @@ public:
     typedef std::shared_ptr<SqliteCursor> ptr;
     
 	int create(Btree *pBtree, int iTable, int wrFlag, struct KeyInfo *pKeyInfo);
-	int movetoUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes);
+	int movetoUnpacked(SqliteKey *pKey, i64 intKey, int biasRight, int *pRes);
 	int first(int *pRes);
 	int	last(int *pRes);
 	int next(int *pRes);
@@ -42,8 +39,8 @@ public:
 	int dataSize(u32 *pSize);
 	int data(u32 offset, u32 amt, void *pBuf);
 	int key(u32 offset, u32 amt, void *pBuf);
-	const void *keyFetch(int *pAmt);
-	const void *dataFetch(int *pAmt);
+	const void *keyFetch(u32 *pAmt);
+	const void *dataFetch(u32 *pAmt);
 	int insert(const void *pKey, i64 nKey, const void *pData, int nData, int nZero, bool appendBias, int seekResult);
     int putData(u32 offset, u32 amt, const void *pData);
 	int deleteCurrent();
@@ -53,7 +50,6 @@ public:
 	bool isEof();
 	bool isEmpty();
     bool isSeekMatch(UnpackedRecord *pIdxKey);
-    i64 getPos();
     i64 count();
     
 private:

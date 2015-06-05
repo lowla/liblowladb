@@ -52,8 +52,9 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
-      <PreprocessorDefinitions>WIN32;MONGO_USE_LONG_LONG_INT;MONGO_STATIC_BUILD;_CRT_SECURE_NO_WARNINGS;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;MONGO_USE_LONG_LONG_INT;MONGO_STATIC_BUILD;SQLITE_DEBUG=1;_CRT_SECURE_NO_WARNINGS;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <PreprocessToFile>false</PreprocessToFile>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -69,6 +70,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;MONGO_USE_LONG_LONG_INT;MONGO_STATIC_BUILD;_CRT_SECURE_NO_WARNINGS;NDEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <PreprocessToFile>false</PreprocessToFile>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -83,21 +85,6 @@
     <ClInclude Include="..\..\src\bson\bson.h" />
     <ClInclude Include="..\..\src\bson\encoding.h" />
     <ClInclude Include="..\..\src\bytevector.h" />
-    <ClInclude Include="..\..\src\datastore\btree.h" />
-    <ClInclude Include="..\..\src\datastore\btreeInt.h" />
-    <ClInclude Include="..\..\src\datastore\hash.h" />
-    <ClInclude Include="..\..\src\datastore\mutex.h" />
-    <ClInclude Include="..\..\src\datastore\opcodes.h" />
-    <ClInclude Include="..\..\src\datastore\os.h" />
-    <ClInclude Include="..\..\src\datastore\os_common.h" />
-    <ClInclude Include="..\..\src\datastore\pager.h" />
-    <ClInclude Include="..\..\src\datastore\parse.h" />
-    <ClInclude Include="..\..\src\datastore\pcache.h" />
-    <ClInclude Include="..\..\src\datastore\sqlite3.h" />
-    <ClInclude Include="..\..\src\datastore\sqliteInt.h" />
-    <ClInclude Include="..\..\src\datastore\sqliteLimit.h" />
-    <ClInclude Include="..\..\src\datastore\vdbe.h" />
-    <ClInclude Include="..\..\src\datastore\vdbeInt.h" />
     <ClInclude Include="..\..\src\integration.h" />
     <ClInclude Include="..\..\src\json\json.h" />
     <ClInclude Include="..\..\src\lowladb.h" />
@@ -117,34 +104,8 @@
     <ClCompile Include="..\..\src\bson\bson.c" />
     <ClCompile Include="..\..\src\bson\encoding.c" />
     <ClCompile Include="..\..\src\bson\numbers.c" />
-    <ClCompile Include="..\..\src\datastore\backup.c" />
-    <ClCompile Include="..\..\src\datastore\bitvec.c" />
-    <ClCompile Include="..\..\src\datastore\btmutex.c" />
-    <ClCompile Include="..\..\src\datastore\btree.c" />
-    <ClCompile Include="..\..\src\datastore\callback.c" />
-    <ClCompile Include="..\..\src\datastore\fault.c" />
-    <ClCompile Include="..\..\src\datastore\global.c" />
-    <ClCompile Include="..\..\src\datastore\hash.c" />
-    <ClCompile Include="..\..\src\datastore\malloc.c" />
-    <ClCompile Include="..\..\src\datastore\mem1.c" />
-    <ClCompile Include="..\..\src\datastore\memjournal.c" />
-    <ClCompile Include="..\..\src\datastore\mutex.c" />
-    <ClCompile Include="..\..\src\datastore\mutex_unix.c" />
-    <ClCompile Include="..\..\src\datastore\mutex_w32.c" />
-    <ClCompile Include="..\..\src\datastore\os.c" />
-    <ClCompile Include="..\..\src\datastore\os_unix.c" />
-    <ClCompile Include="..\..\src\datastore\os_win.c" />
-    <ClCompile Include="..\..\src\datastore\pager.c" />
-    <ClCompile Include="..\..\src\datastore\pcache.c" />
-    <ClCompile Include="..\..\src\datastore\pcache1.c" />
-    <ClCompile Include="..\..\src\datastore\printf.c" />
-    <ClCompile Include="..\..\src\datastore\random.c" />
-    <ClCompile Include="..\..\src\datastore\sqmain.c" />
-    <ClCompile Include="..\..\src\datastore\status.c" />
-    <ClCompile Include="..\..\src\datastore\utf.c" />
-    <ClCompile Include="..\..\src\datastore\util.c" />
-    <ClCompile Include="..\..\src\datastore\vdbe.c" />
-    <ClCompile Include="..\..\src\datastore\vdbemem.c" />
+    <ClCompile Include="..\..\src\datastore\sqlite3-lowla.c" />
+    <ClCompile Include="..\..\src\datastore\sqlite3.c" />
     <ClCompile Include="..\..\src\json\jsoncpp.cpp" />
     <ClCompile Include="..\..\src\lowladb.cpp" />
     <ClCompile Include="..\..\src\md5.cpp" />

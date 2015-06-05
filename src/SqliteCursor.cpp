@@ -25,14 +25,22 @@ int SqliteCursor::create(Btree *pBtree, int iTable, int wrFlag, struct KeyInfo *
 	rc = sqlite3BtreeCursor(pBtree, iTable, wrFlag, pKeyInfo, &cursor);
     if (SQLITE_OK == rc) {
         sqlite3BtreeEnter(pBtree);
-        sqlite3BtreeCacheOverflow(&cursor);
     }
 	open = (SQLITE_OK == rc);
 	return rc;
 }
 
-int SqliteCursor::movetoUnpacked(UnpackedRecord *pIdxKey, i64 intKey, int biasRight, int *pRes) {
-	int rc = sqlite3BtreeMovetoUnpacked(&cursor, pIdxKey, intKey, biasRight, pRes);
+int SqliteCursor::movetoUnpacked(SqliteKey *pKey, i64 intKey, int biasRight, int *pRes) {
+	if (pKey) {
+		UnpackedRecord *precord = pKey->newUnpackedRecord();
+		int rc = sqlite3BtreeMovetoUnpacked(&cursor, precord, intKey, biasRight, pRes);
+		if (SQLITE_OK == rc && 0 == *pRes) {
+			pKey->updateIdFromCursor(this);
+		}
+		pKey->deleteUnpackedRecord(precord);
+		return rc;
+	}
+	int rc = sqlite3BtreeMovetoUnpacked(&cursor, nullptr, intKey, biasRight, pRes);
 	return rc;
 }
 
@@ -71,7 +79,7 @@ int SqliteCursor::key(u32 offset, u32 amt, void *pBuf) {
 	return rc;
 }
 
-const void *SqliteCursor::keyFetch(int *pAmt) {
+const void *SqliteCursor::keyFetch(u32 *pAmt) {
     // We need to retrieve the size before calling KeyFetch to trigger sqlite to parse the current cell
     i64 wdc;
     sqlite3BtreeKeySize(&cursor, &wdc);
@@ -79,7 +87,7 @@ const void *SqliteCursor::keyFetch(int *pAmt) {
 	return sqlite3BtreeKeyFetch(&cursor, pAmt);
 }
 
-const void *SqliteCursor::dataFetch(int *pAmt) {
+const void *SqliteCursor::dataFetch(u32 *pAmt) {
     // We need to retrieve the size before calling DataFetch to trigger sqlite to parse the current cell
     u32 wdc;
     sqlite3BtreeDataSize(&cursor, &wdc);
@@ -93,6 +101,7 @@ int SqliteCursor::insert(const void *pKey, i64 nKey, const void *pData, int nDat
 }
 
 int SqliteCursor::putData(u32 offset, u32 amt, const void *pData) {
+	sqlite3BtreeIncrblobCursor(&cursor);
     int rc = sqlite3BtreePutData(&cursor, offset, amt, (void *)pData);
     return rc;
 }
@@ -103,13 +112,11 @@ int SqliteCursor::deleteCurrent() {
 }
 
 int SqliteCursor::deleteKey(SqliteKey *pKey) {
-	UnpackedRecord *precord = pKey->newUnpackedRecord();
 	int res = 0;
-	int rc = movetoUnpacked(precord, 0, 0, &res);
+	int rc = movetoUnpacked(pKey, 0, 0, &res);
 	if (0 == res) {
 		rc = deleteCurrent();
 	}
-	pKey->deleteUnpackedRecord(precord);
 	return rc;
 }
 
@@ -154,14 +161,6 @@ bool SqliteCursor::isSeekMatch(UnpackedRecord *pIdxKey) {
     bool answer = (0 == sqlite3VdbeRecordCompare((int)keyLen, keyBuf, pIdxKey));
     delete[] keyBuf;
     return answer;
-}
-
-i64 SqliteCursor::getPos() {
-    i64 answer;
-    if (SQLITE_OK == sqlite3BtreePos(&cursor, &answer)) {
-        return answer;
-    }
-    return 0;
 }
 
 i64 SqliteCursor::count() {
