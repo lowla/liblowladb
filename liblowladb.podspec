@@ -12,7 +12,7 @@ Pod::Spec.new do |s|
 
   s.requires_arc = true
   s.compiler_flags = '-DMONGO_USE_LONG_LONG_INT'
-  s.prefix_header_contents = '#ifndef NDEBUG','#define SQLITE_DEBUG = 1','#endif'
+  s.prefix_header_contents = '#ifndef NDEBUG','#define SQLITE_DEBUG 1','#endif'
 
   s.ios.source_files = 'src/**/*.*','platform-src/ios/**/*.*'
   s.osx.source_files = 'src/**/*.*','platform-src/osx/**/*.*'
