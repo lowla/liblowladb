@@ -1189,6 +1189,20 @@ TEST_F(DbTestFixture, test_pull_unexpected_deletion_of_existing_document) {
     EXPECT_EQ(4, pd->getSequenceForNextRequest());
 }
 
+TEST_F(DbTestFixture, test_pull_document_with_null_values) {
+    CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false, \"clientNs\" : \"mydb.mycoll\" }]}");
+    
+    CLowlaDBPullData::ptr pd = lowladb_parse_syncer_response(syncResponse->data());
+    lowladb_create_pull_request(pd);
+    
+    lowladb_apply_json_pull_response("[{ \"id\" : \"serverdb.servercoll$1234\", \"clientNs\" : \"mydb.mycoll\" }, { \"_id\" : \"1234\", \"_version\" : 2, \"myfield\" : null }]", pd);
+    
+    CLowlaDBCursor::ptr cursor = CLowlaDBCursor::create(coll, nullptr);
+    CLowlaDBBson::ptr check = cursor->next();
+    EXPECT_TRUE(!!check);
+    EXPECT_TRUE(check->nullForKey("myfield"));
+}
+
 TEST_F(DbTestFixture, test_create_pull_request) {
     CLowlaDBBson::ptr syncResponse = lowladb_json_to_bson("{\"sequence\" : 2, \"atoms\" : [ {\"id\" : \"serverdb.servercoll$1234\", \"sequence\" : 1, \"version\" : 1, \"deleted\" : false, \"clientNs\" : \"mydb.mycoll\" }]}");
     
@@ -1783,6 +1797,14 @@ TEST(BsonToJson, testBool) {
     EXPECT_EQ("{\n   \"myfalse\" : false,\n   \"mytrue\" : true\n}\n", lowladb_bson_to_json(value->data()));
 }
 
+TEST(BsonToJson, testNull) {
+    CLowlaDBBson::ptr value = CLowlaDBBson::create();
+    value->appendNull("mynull");
+    value->finish();
+    
+    EXPECT_EQ("{\n   \"mynull\" : null\n}\n", lowladb_bson_to_json(value->data()));
+}
+
 TEST(BsonToJson, testObjectId) {
     CLowlaDBBson::ptr value = CLowlaDBBson::create();
     char oid[CLowlaDBBson::OID_SIZE];
@@ -1841,6 +1863,12 @@ TEST(JsonToBson, testDate) {
     int64_t millis;
     EXPECT_TRUE(bson->dateForKey("mydate", &millis));
     EXPECT_EQ(1414782231657, millis);
+}
+
+TEST(JsonToBson, testNull) {
+    CLowlaDBBson::ptr bson = lowladb_json_to_bson("{\"mynull\" : null}");
+    EXPECT_TRUE(bson->nullForKey("mynull"));
+    EXPECT_FALSE(bson->nullForKey("notmynull"));
 }
 
 TEST(JsonToBson, testObjectId) {

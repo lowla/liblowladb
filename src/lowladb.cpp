@@ -173,6 +173,7 @@ public:
     void appendOid(const char *key, const bson_oid_t *oid);
     void appendBool(const char *key, bool value);
     void appendDate(const char *key, int64_t value);
+    void appendNull(const char *key);
     void appendInt(const char *key, int value);
     void appendLong(const char *key, int64_t value);
     void appendAll(CLowlaDBBsonImpl *bson);
@@ -191,6 +192,7 @@ public:
     bool oidForKey(const char *key, bson_oid_t *ret);
     bool boolForKey(const char *key, bool *ret) const;
     bool dateForKey(const char *key, bson_date_t *ret);
+    bool nullForKey(const char *key);
     bool intForKey(const char *key, int *ret);
     bool longForKey(const char *key, int64_t *ret);
     
@@ -1397,6 +1399,10 @@ void CLowlaDBBson::appendDate(const char *key, int64_t value) {
     m_pimpl->appendDate(key, value);
 }
 
+void CLowlaDBBson::appendNull(const char *key) {
+    m_pimpl->appendNull(key);
+}
+
 void CLowlaDBBson::appendInt(const char *key, int value) {
     m_pimpl->appendInt(key, value);
 }
@@ -1465,6 +1471,10 @@ bool CLowlaDBBson::boolForKey(const char *key, bool *ret) {
 
 bool CLowlaDBBson::dateForKey(const char *key, int64_t *ret) {
     return m_pimpl->dateForKey(key, ret);
+}
+
+bool CLowlaDBBson::nullForKey(const char *key) {
+    return m_pimpl->nullForKey(key);
 }
 
 bool CLowlaDBBson::intForKey(const char *key, int *ret) {
@@ -1575,6 +1585,10 @@ void CLowlaDBBsonImpl::appendBool(const char *key, bool value) {
 
 void CLowlaDBBsonImpl::appendDate(const char *key, int64_t value) {
     bson_append_date(this, key, value);
+}
+
+void CLowlaDBBsonImpl::appendNull(const char *key) {
+    bson_append_null(this, key);
 }
 
 void CLowlaDBBsonImpl::appendInt(const char *key, int value) {
@@ -1697,6 +1711,12 @@ bool CLowlaDBBsonImpl::dateForKey(const char *key, bson_date_t *ret) {
         return true;
     }
     return false;
+}
+
+bool CLowlaDBBsonImpl::nullForKey(const char *key) {
+    bson_iterator it[1];
+    bson_type type = bson_find(it, this, key);
+    return (BSON_NULL == type);
 }
 
 bool CLowlaDBBsonImpl::intForKey(const char *key, int *ret) {
@@ -2909,6 +2929,10 @@ static void bson_to_json_value(const char *bsonData, Json::Value *value) {
                 *lval = (0 != bson_iterator_bool(it));
                 break;
             }
+            case BSON_NULL: {
+                *lval = Json::nullValue;
+                break;
+            }
             case BSON_INT: {
                 *lval = bson_iterator_int_raw(it);
                 break;
@@ -2940,6 +2964,7 @@ static void appendJsonValueToBson(CLowlaDBBsonImpl *bson, const char *key, const
 {
     switch (value.type()) {
         case Json::nullValue:
+            bson->appendNull(key);
             break;
         case Json::intValue:
             bson->appendInt(key, value.asInt());

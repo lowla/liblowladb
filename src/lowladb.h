@@ -37,6 +37,7 @@ public:
     void appendOid(const char *key, const void *value);
     void appendBool(const char *key, bool value);
     void appendDate(const char *key, int64_t value);
+    void appendNull(const char *key);
     void appendInt(const char *key, int value);
     void appendLong(const char *key, int64_t value);
 
@@ -53,6 +54,7 @@ public:
     bool oidForKey(const char *key, char *ret);
     bool boolForKey(const char *key, bool *ret);
     bool dateForKey(const char *key, int64_t *ret);
+    bool nullForKey(const char *key);
     bool intForKey(const char *key, int *ret);
     bool longForKey(const char *key, int64_t *ret);
     
