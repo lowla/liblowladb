@@ -7,7 +7,7 @@
 
 ## Requirements
 liblowladb is currently supported on iOS 6.0 and above. Versions for Android and Windows are planned.
-Note that the unit tests for liblowladb on iOS require XCode 6.
+Note that the unit tests for liblowladb on iOS require Xcode 6.
 
 ## Installation
 
